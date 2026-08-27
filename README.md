@@ -1,5 +1,7 @@
 # maschine-mk3-linux
 
+[! note] This software has not been thoroughly tested yet.
+
 A userspace driver that turns the Native Instruments Maschine MK3 into a
 configurable MIDI controller on Linux. Pads, knobs, buttons, the encoder, the
 touch strip, every LED and both colour screens.
@@ -13,13 +15,14 @@ interface and a bulk endpoint that takes pixels. This is that, written out.
 The MK3 presents seven USB interfaces. `lsusb -v -d 17cc:1600` shows all of
 them; the driver only has to supply two.
 
-| # | Class | What it is | Handled by |
-|---|---|---|---|
-| 0-2 | Audio (UAC2) | 4 out / 2 in, 24-bit, up to 96 kHz | `snd-usb-audio` (kernel) |
-| 3 | MIDI Streaming | the rear DIN MIDI in/out jacks | `snd-usb-audio` (kernel) |
-| 4 | HID | pads, buttons, knobs, encoder, all LEDs | **this driver** |
-| 5 | Vendor `0xbd`, "Maschine MK3 BD" | bulk pixel data for both screens | **this driver** |
-| 6 | DFU | firmware update | nothing |
+
+| #   | Class                           | What it is                              | Handled by               |
+| --- | ------------------------------- | --------------------------------------- | ------------------------ |
+| 0-2 | Audio (UAC2)                    | 4 out / 2 in, 24-bit, up to 96 kHz      | `snd-usb-audio` (kernel) |
+| 3   | MIDI Streaming                  | the rear DIN MIDI in/out jacks          | `snd-usb-audio` (kernel) |
+| 4   | HID                             | pads, buttons, knobs, encoder, all LEDs | **this driver**          |
+| 5   | Vendor`0xbd`, "Maschine MK3 BD" | bulk pixel data for both screens        | **this driver**          |
+| 6   | DFU                             | firmware update                         | nothing                  |
 
 The audio interface and the DIN jacks already work out of the box on any modern
 kernel. See [`audio/README.md`](audio/README.md) for the two configuration
@@ -187,14 +190,15 @@ mk3-learn leds 16 62  # step through the button LED slots one at a time
 
 `buttons` accepts, at each prompt:
 
-| input | effect |
-|---|---|
-| `play` | record the bit under that name |
-| `play 21` | record it with LED slot 21 as well |
-| *enter* | skip this press, wait for the next |
-| `45` | use bit 45 instead of the one detected |
-| `list` | show what has been mapped so far |
-| `done` | finish |
+
+| input     | effect                                 |
+| --------- | -------------------------------------- |
+| `play`    | record the bit under that name         |
+| `play 21` | record it with LED slot 21 as well     |
+| *enter*   | skip this press, wait for the next     |
+| `45`      | use bit 45 instead of the one detected |
+| `list`    | show what has been mapped so far       |
+| `done`    | finish                                 |
 
 Each name is written to the config the moment you enter it, so a session can be
 stopped with ctrl-c and resumed later without losing anything. Only the
@@ -223,11 +227,12 @@ outright, so a pad strike becomes a MIDI event with no lock, no allocation and
 no context switch. LED and screen updates are handed to a second thread through
 `try_lock` snapshots — a busy screen can never delay a note.
 
-| stage | cost |
-|---|---|
-| pad strike to HID report | up to 1 ms |
-| parse, map, dispatch | a few µs |
-| ALSA sequencer to the host | µs |
+
+| stage                      | cost       |
+| -------------------------- | ---------- |
+| pad strike to HID report   | up to 1 ms |
+| parse, map, dispatch       | a few µs  |
+| ALSA sequencer to the host | µs        |
 
 The 1 ms floor is the interrupt endpoint's polling interval (`bInterval = 1` at
 USB high speed). It is a property of the hardware and cannot be tuned away —
