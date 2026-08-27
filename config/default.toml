@@ -83,7 +83,7 @@ idle_colour = 11         # blue
 active_colour = 17       # white
 idle_level = 1           # 0 off, 1 dim, 2 normal, 3 bright
 # LED slot of pad 0. The 103 slots are 62 button slots, then the 25 touch strip
-# LEDs, then the 16 pads -- so the pads start at 87. See docs/led-map.md.
+# LEDs, then the 16 pads -- so the pads start at 87. See docs/hardware-map.md.
 led_base = 87
 
 [knobs]
@@ -141,56 +141,599 @@ switch = true
 switch_threshold = 2048
 
 # ---------------------------------------------------------------------------
-# Buttons
+# Buttons -- confirmed on hardware
 #
-# `bit` is the button's index in the device's 80-bit button field and `led` is
-# its slot in the 103-slot LED array. Neither is printed on the hardware; run
+# `bit` is the button's index in the device's 80-bit field. All 72 below were
+# read off a real MK3 by pressing each one; the remaining eight bits
+# (1, 22, 23, 32, 54, 55, 62, 63) match no button on the panel and appear to be
+# firmware padding. See docs/hardware-map.md.
 #
-#     mk3-learn buttons        # press each button, name it
-#     mk3-learn leds           # step through LED slots, note what lights
+# Every button sends its own CC on channel 16, numbered the same as its bit, so
+# the mapping is predictable and collides with neither the pads (channel 10)
+# nor the knobs (channel 1). Change any of them freely.
 #
-# and the indices below get written for you.
+# `led` is the LED slot, -1 where it has not been identified yet; find more
+# with `mk3-learn leds 16 62`. `led_colour` is -1 for a monochrome LED, or a
+# palette index for a colour one -- the bank is mixed, and a colour LED reads
+# its byte as (palette << 2) | level rather than as brightness.
 #
 # midi:     none | note CH N | cc CH N [VALUE] | pc CH N | start | stop | continue
 # mode:     momentary | toggle | trigger
 # led_mode: follow (mirror the button) | midi (mirror the host) | always | off
 # ---------------------------------------------------------------------------
 
-# LED slots confirmed on real hardware. Fill in each `bit` with
-# `mk3-learn buttons` and uncomment the ones you want.
-#
-#   slot  0-3    the four leftmost buttons above the displays
-#   slot  4      File / Save
-#   slot  5      Settings
-#   slot  6      Auto
-#   slot  7      Macro / Set
-#   slot  8      Browser / +Plug-in
-#   slot  9      Sampling          (a colour LED, not monochrome)
-#   slot 10      left arrow, below Browser
-#   slot 11      right arrow
-#   slot 12      Channel / MIDI
-#   slot 13      Plug-in / Instance
-#   slot 14      Arranger
-#   slot 15      Mixer
-#
-# Slots 16-61 are the remaining buttons; step through them with
-# `mk3-learn leds 16 62`.
+[button.jogwheel-push]
+bit = 0
+led = -1
+led_colour = -1
+midi = "none"
+mode = "momentary"
+led_mode = "follow"
 
-# Bits confirmed on hardware:
-#
-#   bit 45   Play
-#   bit 56   Channel / MIDI
-#
-# [button.play]
-# bit = 45
-# led = -1
-# midi = "cc 1 118"
-# mode = "trigger"
-# led_mode = "midi"
+[button.jogwheel-tilt-up]
+bit = 2
+led = -1
+led_colour = -1
+midi = "none"
+mode = "momentary"
+led_mode = "follow"
 
-# [button.channel_midi]
-# bit = 56
-# led = 12
-# midi = "none"
-# mode = "momentary"
-# led_mode = "follow"
+[button.jogwheel-tilt-right]
+bit = 3
+led = -1
+led_colour = -1
+midi = "none"
+mode = "momentary"
+led_mode = "follow"
+
+[button.jogwheel-tilt-down]
+bit = 4
+led = -1
+led_colour = -1
+midi = "none"
+mode = "momentary"
+led_mode = "follow"
+
+[button.jogwheel-tilt-left]
+bit = 5
+led = -1
+led_colour = -1
+midi = "none"
+mode = "momentary"
+led_mode = "follow"
+
+[button.shift]
+bit = 6
+led = -1
+led_colour = -1
+midi = "cc 16 6"
+mode = "momentary"
+led_mode = "follow"
+
+[button.screen-8]
+bit = 7
+led = 19
+led_colour = -1
+midi = "cc 16 7"
+mode = "momentary"
+led_mode = "follow"
+
+[button.a]
+bit = 8
+led = -1
+led_colour = 17
+midi = "cc 16 8"
+mode = "momentary"
+led_mode = "follow"
+
+[button.b]
+bit = 9
+led = -1
+led_colour = 17
+midi = "cc 16 9"
+mode = "momentary"
+led_mode = "follow"
+
+[button.c]
+bit = 10
+led = -1
+led_colour = 17
+midi = "cc 16 10"
+mode = "momentary"
+led_mode = "follow"
+
+[button.d]
+bit = 11
+led = -1
+led_colour = 17
+midi = "cc 16 11"
+mode = "momentary"
+led_mode = "follow"
+
+[button.e]
+bit = 12
+led = -1
+led_colour = 17
+midi = "cc 16 12"
+mode = "momentary"
+led_mode = "follow"
+
+[button.f]
+bit = 13
+led = -1
+led_colour = 17
+midi = "cc 16 13"
+mode = "momentary"
+led_mode = "follow"
+
+[button.g]
+bit = 14
+led = -1
+led_colour = 17
+midi = "cc 16 14"
+mode = "momentary"
+led_mode = "follow"
+
+[button.h]
+bit = 15
+led = -1
+led_colour = 17
+midi = "cc 16 15"
+mode = "momentary"
+led_mode = "follow"
+
+[button.notes]
+bit = 16
+led = -1
+led_colour = -1
+midi = "cc 16 16"
+mode = "momentary"
+led_mode = "follow"
+
+[button.volume]
+bit = 17
+led = -1
+led_colour = -1
+midi = "cc 16 17"
+mode = "momentary"
+led_mode = "follow"
+
+[button.swing]
+bit = 18
+led = -1
+led_colour = -1
+midi = "cc 16 18"
+mode = "momentary"
+led_mode = "follow"
+
+[button.tempo]
+bit = 19
+led = -1
+led_colour = -1
+midi = "cc 16 19"
+mode = "momentary"
+led_mode = "follow"
+
+[button.note-repeat]
+bit = 20
+led = -1
+led_colour = -1
+midi = "none"
+mode = "momentary"
+led_mode = "follow"
+
+[button.lock]
+bit = 21
+led = -1
+led_colour = -1
+midi = "cc 16 21"
+mode = "momentary"
+led_mode = "follow"
+
+[button.pad-mode]
+bit = 24
+led = -1
+led_colour = -1
+midi = "cc 16 24"
+mode = "momentary"
+led_mode = "follow"
+
+[button.keyboard]
+bit = 25
+led = -1
+led_colour = -1
+midi = "cc 16 25"
+mode = "momentary"
+led_mode = "follow"
+
+[button.chords]
+bit = 26
+led = -1
+led_colour = -1
+midi = "cc 16 26"
+mode = "momentary"
+led_mode = "follow"
+
+[button.step]
+bit = 27
+led = -1
+led_colour = -1
+midi = "cc 16 27"
+mode = "momentary"
+led_mode = "follow"
+
+[button.fixed-vel]
+bit = 28
+led = -1
+led_colour = -1
+midi = "cc 16 28"
+mode = "momentary"
+led_mode = "follow"
+
+[button.scene]
+bit = 29
+led = -1
+led_colour = -1
+midi = "cc 16 29"
+mode = "momentary"
+led_mode = "follow"
+
+[button.pattern]
+bit = 30
+led = -1
+led_colour = -1
+midi = "cc 16 30"
+mode = "momentary"
+led_mode = "follow"
+
+[button.events]
+bit = 31
+led = -1
+led_colour = -1
+midi = "cc 16 31"
+mode = "momentary"
+led_mode = "follow"
+
+[button.variation]
+bit = 33
+led = -1
+led_colour = -1
+midi = "cc 16 33"
+mode = "momentary"
+led_mode = "follow"
+
+[button.duplicate]
+bit = 34
+led = -1
+led_colour = -1
+midi = "cc 16 34"
+mode = "momentary"
+led_mode = "follow"
+
+[button.select]
+bit = 35
+led = -1
+led_colour = -1
+midi = "cc 16 35"
+mode = "momentary"
+led_mode = "follow"
+
+[button.solo]
+bit = 36
+led = -1
+led_colour = -1
+midi = "cc 16 36"
+mode = "momentary"
+led_mode = "follow"
+
+[button.mute]
+bit = 37
+led = -1
+led_colour = -1
+midi = "cc 16 37"
+mode = "momentary"
+led_mode = "follow"
+
+[button.pitch]
+bit = 38
+led = -1
+led_colour = -1
+midi = "cc 16 38"
+mode = "momentary"
+led_mode = "follow"
+
+[button.mod]
+bit = 39
+led = -1
+led_colour = -1
+midi = "cc 16 39"
+mode = "momentary"
+led_mode = "follow"
+
+[button.perform]
+bit = 40
+led = -1
+led_colour = -1
+midi = "cc 16 40"
+mode = "momentary"
+led_mode = "follow"
+
+[button.restart]
+bit = 41
+led = -1
+led_colour = -1
+midi = "cc 16 41"
+mode = "momentary"
+led_mode = "follow"
+
+[button.erase]
+bit = 42
+led = -1
+led_colour = -1
+midi = "cc 16 42"
+mode = "momentary"
+led_mode = "follow"
+
+[button.tap]
+bit = 43
+led = -1
+led_colour = -1
+midi = "cc 16 43"
+mode = "momentary"
+led_mode = "follow"
+
+[button.follow]
+bit = 44
+led = -1
+led_colour = -1
+midi = "cc 16 44"
+mode = "momentary"
+led_mode = "follow"
+
+[button.play]
+bit = 45
+led = -1
+led_colour = 17
+midi = "cc 16 45"
+mode = "momentary"
+led_mode = "follow"
+
+[button.rec]
+bit = 46
+led = -1
+led_colour = 17
+midi = "cc 16 46"
+mode = "momentary"
+led_mode = "follow"
+
+[button.stop]
+bit = 47
+led = -1
+led_colour = -1
+midi = "cc 16 47"
+mode = "momentary"
+led_mode = "follow"
+
+[button.macro]
+bit = 48
+led = 11
+led_colour = -1
+midi = "cc 16 48"
+mode = "momentary"
+led_mode = "follow"
+
+[button.settings]
+bit = 49
+led = 9
+led_colour = -1
+midi = "cc 16 49"
+mode = "momentary"
+led_mode = "follow"
+
+[button.arrow-right]
+bit = 50
+led = 7
+led_colour = -1
+midi = "cc 16 50"
+mode = "momentary"
+led_mode = "follow"
+
+[button.sampling]
+bit = 51
+led = 5
+led_colour = 17
+midi = "cc 16 51"
+mode = "momentary"
+led_mode = "follow"
+
+[button.mixer]
+bit = 52
+led = 3
+led_colour = -1
+midi = "cc 16 52"
+mode = "momentary"
+led_mode = "follow"
+
+[button.plug-in]
+bit = 53
+led = 1
+led_colour = -1
+midi = "cc 16 53"
+mode = "momentary"
+led_mode = "follow"
+
+[button.channel-midi]
+bit = 56
+led = 0
+led_colour = -1
+midi = "cc 16 56"
+mode = "momentary"
+led_mode = "follow"
+
+[button.arranger]
+bit = 57
+led = 2
+led_colour = -1
+midi = "cc 16 57"
+mode = "momentary"
+led_mode = "follow"
+
+[button.browser]
+bit = 58
+led = 4
+led_colour = -1
+midi = "cc 16 58"
+mode = "momentary"
+led_mode = "follow"
+
+[button.arrow-left]
+bit = 59
+led = 6
+led_colour = -1
+midi = "cc 16 59"
+mode = "momentary"
+led_mode = "follow"
+
+[button.file]
+bit = 60
+led = 8
+led_colour = -1
+midi = "cc 16 60"
+mode = "momentary"
+led_mode = "follow"
+
+[button.auto]
+bit = 61
+led = 10
+led_colour = -1
+midi = "cc 16 61"
+mode = "momentary"
+led_mode = "follow"
+
+[button.screen-1]
+bit = 64
+led = 12
+led_colour = -1
+midi = "cc 16 64"
+mode = "momentary"
+led_mode = "follow"
+
+[button.screen-2]
+bit = 65
+led = 13
+led_colour = -1
+midi = "cc 16 65"
+mode = "momentary"
+led_mode = "follow"
+
+[button.screen-3]
+bit = 66
+led = 14
+led_colour = -1
+midi = "cc 16 66"
+mode = "momentary"
+led_mode = "follow"
+
+[button.screen-4]
+bit = 67
+led = 15
+led_colour = -1
+midi = "cc 16 67"
+mode = "momentary"
+led_mode = "follow"
+
+[button.screen-5]
+bit = 68
+led = 16
+led_colour = -1
+midi = "cc 16 68"
+mode = "momentary"
+led_mode = "follow"
+
+[button.screen-6]
+bit = 69
+led = 17
+led_colour = -1
+midi = "cc 16 69"
+mode = "momentary"
+led_mode = "follow"
+
+[button.screen-7]
+bit = 70
+led = 18
+led_colour = -1
+midi = "cc 16 70"
+mode = "momentary"
+led_mode = "follow"
+
+[button.jogwheel-touched]
+bit = 71
+led = -1
+led_colour = -1
+midi = "cc 16 71"
+mode = "momentary"
+led_mode = "follow"
+
+[button.knob-8-touch]
+bit = 72
+led = -1
+led_colour = -1
+midi = "cc 16 72"
+mode = "momentary"
+led_mode = "follow"
+
+[button.knob-7-touch]
+bit = 73
+led = -1
+led_colour = -1
+midi = "cc 16 73"
+mode = "momentary"
+led_mode = "follow"
+
+[button.knob-6-touch]
+bit = 74
+led = -1
+led_colour = -1
+midi = "cc 16 74"
+mode = "momentary"
+led_mode = "follow"
+
+[button.knob-5-touch]
+bit = 75
+led = -1
+led_colour = -1
+midi = "cc 16 75"
+mode = "momentary"
+led_mode = "follow"
+
+[button.knob-4-touch]
+bit = 76
+led = -1
+led_colour = -1
+midi = "cc 16 76"
+mode = "momentary"
+led_mode = "follow"
+
+[button.knob-3-touch]
+bit = 77
+led = -1
+led_colour = -1
+midi = "cc 16 77"
+mode = "momentary"
+led_mode = "follow"
+
+[button.knob-2-touch]
+bit = 78
+led = -1
+led_colour = -1
+midi = "cc 16 78"
+mode = "momentary"
+led_mode = "follow"
+
+[button.knob-1-touch]
+bit = 79
+led = -1
+led_colour = -1
+midi = "cc 16 79"
+mode = "momentary"
+led_mode = "follow"

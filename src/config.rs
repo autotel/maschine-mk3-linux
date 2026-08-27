@@ -19,7 +19,7 @@ use crate::hid::{KNOBS, PADS};
 ///
 /// The 103 LED slots are 62 button slots (output report `0x80`) followed by 41
 /// more (report `0x81`): the 25 touch strip LEDs first, then the 16 pads.
-/// Verified on hardware by lighting single slots -- see `docs/led-map.md`.
+/// Verified on hardware by lighting single slots -- see `docs/hardware-map.md`.
 pub const PAD_LED_BASE: usize = 87;
 /// LED slot of the touch strip's first LED.
 pub const STRIP_LED_BASE: usize = 62;
@@ -539,6 +539,14 @@ pub struct ButtonCfg {
     pub bit: usize,
     /// LED slot, or `-1` when the button has no LED.
     pub led: i32,
+    /// Palette index when this slot drives a colour LED; `-1` for monochrome.
+    ///
+    /// The button bank is mixed. A monochrome LED reads its byte as brightness
+    /// over 0..=127, but a colour one reads the same byte as
+    /// `(palette << 2) | level` -- so writing a modest brightness like 10 to a
+    /// colour LED selects palette 2 at level 2 and it comes up orange instead
+    /// of dim white. Sampling is the one confirmed so far.
+    pub led_colour: i32,
     /// MIDI to emit, in the compact form documented on [`Action`].
     pub midi: String,
     /// Press/release behaviour.
@@ -552,6 +560,7 @@ impl Default for ButtonCfg {
         Self {
             bit: 0,
             led: -1,
+            led_colour: -1,
             midi: "none".into(),
             mode: ButtonMode::Momentary,
             led_mode: LedMode::Follow,
@@ -876,6 +885,12 @@ impl Config {
             if let Some(prev) = seen.insert(b.bit, name) {
                 bail!("button.{name} and button.{prev} both claim bit {}", b.bit);
             }
+            if b.led_colour >= 32 {
+                bail!(
+                    "button.{name}: led_colour {} outside -1..31",
+                    b.led_colour
+                );
+            }
             if b.led >= crate::leds::LED_COUNT as i32 {
                 bail!(
                     "button.{name}: led {} outside 0..{}",
@@ -897,6 +912,7 @@ impl Config {
                 name: name.clone(),
                 bit: b.bit,
                 led: b.led,
+                led_colour: b.led_colour,
                 action: Action::parse(&b.midi).unwrap_or(Action::None),
                 mode: b.mode,
                 led_mode: b.led_mode,
@@ -927,6 +943,8 @@ pub struct CompiledButton {
     pub bit: usize,
     /// LED slot, negative when absent.
     pub led: i32,
+    /// Palette index for a colour LED, negative for monochrome.
+    pub led_colour: i32,
     /// Parsed action.
     pub action: Action,
     /// Press/release behaviour.

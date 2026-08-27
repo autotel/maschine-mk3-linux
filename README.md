@@ -138,7 +138,7 @@ are left exactly as they were.
 
 The pad and touch strip slots are already known and set in the shipped config,
 along with the sixteen button slots listed in
-[`docs/led-map.md`](docs/led-map.md), so `leds` only has slots 16-61 left to
+[`docs/hardware-map.md`](docs/hardware-map.md), so `leds` only has slots 16-61 left to
 identify.
 
 Other subcommands, useful when something is not behaving:
@@ -183,7 +183,7 @@ jitter is the only cost.
 103 slots: 62 buttons, then the 25 touch strip LEDs, then the 16 pads. The pad
 and strip positions are set correctly out of the box; the per-button map and
 the three colour encodings are written up in
-[`docs/led-map.md`](docs/led-map.md).
+[`docs/hardware-map.md`](docs/hardware-map.md).
 
 The touch strip works as a meter following your finger. If it fills from the
 wrong end, flip `touchstrip.led_reversed`.

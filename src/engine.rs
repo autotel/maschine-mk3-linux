@@ -117,12 +117,8 @@ impl Engine {
             if b.led < 0 {
                 continue;
             }
-            let v = match b.led_mode {
-                LedMode::Off => 0,
-                LedMode::Always => self.cfg.leds.button_active,
-                _ => self.cfg.leds.button_idle,
-            };
-            leds.set(b.led as usize, leds::mono(v));
+            let lit = matches!(b.led_mode, LedMode::Always);
+            leds.set(b.led as usize, self.button_led(b, lit));
         }
     }
 
@@ -204,12 +200,27 @@ impl Engine {
                 ButtonMode::Toggle => self.toggle[bit],
                 _ => down,
             };
-            let v = if lit {
-                self.cfg.leds.button_active
-            } else {
-                self.cfg.leds.button_idle
-            };
-            leds.set(b.led as usize, leds::mono(v));
+            leds.set(b.led as usize, self.button_led(b, lit));
+        }
+    }
+
+    /// The LED byte for a button, honouring whether its slot is a colour one.
+    ///
+    /// Colour and monochrome LEDs share the output report but read their byte
+    /// completely differently, so a single brightness ramp cannot serve both.
+    fn button_led(&self, b: &CompiledButton, lit: bool) -> u8 {
+        if b.led_mode == LedMode::Off {
+            return 0;
+        }
+        if b.led_colour >= 0 {
+            leds::colour(
+                b.led_colour as u8,
+                if lit { Level::Bright } else { Level::Dim },
+            )
+        } else if lit {
+            leds::mono(self.cfg.leds.button_active)
+        } else {
+            leds::mono(self.cfg.leds.button_idle)
         }
     }
 
@@ -498,12 +509,7 @@ impl Engine {
                 _ => false,
             };
             if hit {
-                let v = if val > 0 {
-                    self.cfg.leds.button_active
-                } else {
-                    self.cfg.leds.button_idle
-                };
-                leds.set(b.led as usize, leds::mono(v));
+                leds.set(b.led as usize, self.button_led(b, val > 0));
             }
         }
 
@@ -566,6 +572,47 @@ mod tests {
             collect(&mut e, &base, &mut leds),
             vec![Msg::Cc { ch: 0, cc: 118, val: 0 }]
         );
+    }
+
+    #[test]
+    fn colour_button_leds_do_not_use_the_brightness_ramp() {
+        // Writing a modest brightness to a colour LED selects a palette entry
+        // instead: 10 is (2 << 2) | 2, which comes out orange. Sampling is a
+        // colour LED and did exactly that before this existed.
+        let mut cfg = Config::default();
+        cfg.leds.button_idle = 10;
+        cfg.button.insert(
+            "sampling".into(),
+            ButtonCfg { bit: 51, led: 5, led_colour: 11, ..Default::default() },
+        );
+        cfg.button.insert(
+            "mixer".into(),
+            ButtonCfg { bit: 52, led: 3, led_colour: -1, ..Default::default() },
+        );
+        let (e, mut leds) = engine_with(cfg);
+        e.paint_idle(&mut leds);
+        assert_eq!(
+            leds.get(5),
+            crate::leds::colour(11, crate::leds::Level::Dim),
+            "a colour LED idles at its palette entry, dimmed"
+        );
+        assert_eq!(leds.get(3), 10, "a monochrome one still takes plain brightness");
+    }
+
+    #[test]
+    fn colour_button_led_brightens_on_press() {
+        let mut cfg = Config::default();
+        cfg.button.insert(
+            "sampling".into(),
+            ButtonCfg { bit: 51, led: 5, led_colour: 11, ..Default::default() },
+        );
+        let (mut e, mut leds) = engine_with(cfg);
+        let base = ControlState::default();
+        collect(&mut e, &base, &mut leds);
+        let mut down = base;
+        down.buttons[51 / 8] = 1 << (51 % 8);
+        collect(&mut e, &down, &mut leds);
+        assert_eq!(leds.get(5), crate::leds::colour(11, crate::leds::Level::Bright));
     }
 
     #[test]

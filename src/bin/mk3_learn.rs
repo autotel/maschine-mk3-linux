@@ -46,7 +46,8 @@ mk3-learn -- hardware discovery for the Maschine MK3
                          catches controls that fall outside the known fields
   buttons [config] [--debug]
                          press each button in turn; records bit indices
-  leds [start] [end]     light LED slots one at a time to identify them
+  leds [start] [end]     light LED slots one at a time and record what each
+                         one drives, straight into the config
   find-pads [config]     locate the pad LED block and record it in the config
   probe A B [VALUE]      light LED slots A..B at once (VALUE defaults to 0x47)
   probe rgb              light only the colour LEDs, leaving mono ones dark
@@ -191,6 +192,7 @@ fn buttons(args: &[String]) -> Result<()> {
     let mut ignored: Vec<usize> = Vec::new();
 
     println!("{BUTTONS_HELP}\nConfig: {}\n", path.display());
+    print_unmapped(&cfg);
 
     'session: loop {
         // Wait for everything to be released, so the next press starts from a
@@ -388,6 +390,7 @@ fn handle_command(line: &str, cfg: &Config, ignored: &mut Vec<usize>) -> Command
         "done" | "quit" | "exit" => Command::Done,
         "list" => {
             print_buttons(cfg);
+            print_unmapped(cfg);
             if !ignored.is_empty() {
                 println!("  ignoring bits {ignored:?}");
             }
@@ -545,6 +548,23 @@ fn live_bits(s: &ControlState, ignored: &[usize]) -> Vec<usize> {
         .collect()
 }
 
+/// Show which button bits nobody has claimed yet.
+///
+/// Knowing what is left turns a long discovery session from open-ended into a
+/// countdown, and a gap in an otherwise contiguous byte is a strong hint about
+/// what the remaining bits are.
+fn print_unmapped(cfg: &Config) {
+    let taken: Vec<usize> = cfg.button.values().map(|b| b.bit).collect();
+    let free: Vec<usize> = (0..hid::BUTTON_BITS)
+        .filter(|b| !taken.contains(b))
+        .collect();
+    if free.is_empty() {
+        println!("  every bit is mapped.");
+        return;
+    }
+    println!("  {} of {} bits mapped; still free: {free:?}", taken.len(), hid::BUTTON_BITS);
+}
+
 fn print_buttons(cfg: &Config) {
     if cfg.button.is_empty() {
         println!("  (nothing mapped yet)");
@@ -560,10 +580,16 @@ fn print_buttons(cfg: &Config) {
 
 // ---------------------------------------------------------------------------
 
-/// Light LED slots one at a time so the user can record what each one is.
+/// Light LED slots one at a time and record what each one drives.
+///
+/// The LED array is a flat run of 103 bytes with nothing to say which physical
+/// light each drives, so the only way to find out is to light one and look.
+/// This walks them and writes the answers straight into the config, so a
+/// session can be interrupted and resumed.
 fn walk_leds(args: &[String]) -> Result<()> {
-    let start: usize = args.first().map(|s| s.parse()).transpose()?.unwrap_or(0);
-    let end: usize = args
+    let positional: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
+    let start: usize = positional.first().map(|s| s.parse()).transpose()?.unwrap_or(0);
+    let end: usize = positional
         .get(1)
         .map(|s| s.parse())
         .transpose()?
@@ -572,44 +598,161 @@ fn walk_leds(args: &[String]) -> Result<()> {
     if start >= end {
         bail!("start {start} must be below end {end}");
     }
+    let path = args
+        .iter()
+        .find(|a| a.ends_with(".toml"))
+        .map(PathBuf::from)
+        .unwrap_or_else(Config::default_path);
+    let mut cfg = if path.exists() {
+        Config::load(&path)?
+    } else {
+        Config::default()
+    };
 
     let mut dev = open()?;
     let mut leds = Leds::new();
-    leds.all_off();
-    leds.flush(&mut dev)?;
 
     println!(
         "\
-Lighting LED slots {start}..{end}, one at a time. Type what you see lit and
-press enter to advance; empty input also advances. Type `q` to stop, `b` to
-step back. Slots 0..{} are report 0x80, the rest are report 0x81.
+Walking LED slots {start}..{end}. One lights at a time; say what it is.
+
+  <button>          record this slot as that button's LED, e.g.  play
+  <button> c        ...and mark it a colour LED (it looks tinted, not white)
+  <button> c <n>    ...with a specific palette index
+  <enter>           skip to the next slot
+  b                 back one slot
+  j <slot>          jump to a slot
+  list              show buttons that still have no LED slot
+  done              finish
+
+Button names must already exist in the config -- map the bits with
+`mk3-learn buttons` first. Each answer is saved immediately.
+
+Slots {}..{} are output report 0x80; the rest are 0x81, which holds the touch
+strip and the pads and is already known.
+
+Config: {}
 ",
-        leds::BANK0_LEN
+        0,
+        leds::BANK0_LEN,
+        path.display()
     );
 
     let mut i = start;
     while i < end {
         leds.all_off();
-        // Mono LEDs read the byte as brightness; colour LEDs read it as
-        // (palette << 2) | level. 0x7f lights either kind, which is what we
-        // want when we do not yet know which this slot is.
+        // 0x7f lights either kind: a monochrome LED reads it as full
+        // brightness, a colour one as palette 31 at level 3.
         leds.raw_mut()[i] = 0x7f;
         leds.flush(&mut dev)?;
 
-        let ans = prompt(&format!("slot {i:>3}> "))?;
-        match ans.as_str() {
-            "q" => break,
-            "b" => i = i.saturating_sub(1),
-            "" => i += 1,
-            label => {
-                println!("  slot {i} = {label}");
-                i += 1;
+        let owner = cfg
+            .button
+            .iter()
+            .find(|(_, b)| b.led == i as i32)
+            .map(|(n, _)| n.clone());
+        let tag = match &owner {
+            Some(n) => format!(" [currently {n}]"),
+            None => String::new(),
+        };
+
+        let line = prompt(&format!("slot {i:>3}{tag}> "))?;
+        let mut w = line.split_whitespace();
+        let Some(head) = w.next() else {
+            i += 1;
+            continue;
+        };
+
+        match head {
+            "done" | "q" | "quit" => break,
+            "b" => {
+                i = i.saturating_sub(1);
+                continue;
+            }
+            "j" => {
+                match w.next().and_then(|t| t.parse::<usize>().ok()) {
+                    Some(n) if n < LED_COUNT => i = n,
+                    _ => eprintln!("  ! usage: j <slot 0..{}>", LED_COUNT - 1),
+                }
+                continue;
+            }
+            "list" => {
+                let mut missing: Vec<&String> = cfg
+                    .button
+                    .iter()
+                    .filter(|(_, b)| b.led < 0)
+                    .map(|(n, _)| n)
+                    .collect();
+                missing.sort();
+                if missing.is_empty() {
+                    println!("  every mapped button has an LED slot.");
+                } else {
+                    println!("  no LED slot yet ({}): {}", missing.len(), 
+                        missing.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" "));
+                }
+                continue;
+            }
+            _ => {}
+        }
+
+        let name = head.to_string();
+        if !cfg.button.contains_key(&name) {
+            // Offer the closest thing rather than silently creating an entry
+            // with no bit, which would be a button the driver can never read.
+            let near: Vec<&String> = cfg
+                .button
+                .keys()
+                .filter(|k| k.contains(&name) || name.contains(k.as_str()))
+                .collect();
+            eprintln!("  ! no button called `{name}` -- map its bit first with `mk3-learn buttons`");
+            if !near.is_empty() {
+                eprintln!(
+                    "    did you mean: {}",
+                    near.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" ")
+                );
+            }
+            continue;
+        }
+
+        // A slot can only belong to one button.
+        if let Some(old) = owner {
+            if old != name {
+                if let Some(b) = cfg.button.get_mut(&old) {
+                    b.led = -1;
+                }
+                println!("  (slot {i} taken from `{old}`)");
             }
         }
+
+        let rest: Vec<&str> = w.collect();
+        let colour = if rest.first().is_some_and(|t| *t == "c" || *t == "colour") {
+            // Default to white: it reads as neutral on every ramp, so a
+            // mistagged monochrome LED still looks right.
+            Some(rest.get(1).and_then(|t| t.parse::<i32>().ok()).unwrap_or(17))
+        } else {
+            None
+        };
+
+        let b = cfg.button.get_mut(&name).expect("checked above");
+        b.led = i as i32;
+        if let Some(c) = colour {
+            b.led_colour = c;
+        }
+
+        match Config::write_buttons_preserving(&path, &cfg.button) {
+            Ok(()) => match colour {
+                Some(c) => println!("  ok: {name}.led = {i}, led_colour = {c}  [saved]"),
+                None => println!("  ok: {name}.led = {i}  [saved]"),
+            },
+            Err(e) => eprintln!("  ! could not save: {e:#}"),
+        }
+        i += 1;
     }
 
     leds.all_off();
     leds.flush(&mut dev)?;
+    Config::write_buttons_preserving(&path, &cfg.button)?;
+    println!("wrote {}", path.display());
     Ok(())
 }
 

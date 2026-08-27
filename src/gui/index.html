@@ -140,14 +140,16 @@
     <fieldset><legend>BUTTONS</legend>
       <p class="hint" style="margin-top:0">
         <code>bit</code> is the button's index in the device's 80-bit field and <code>led</code> its LED
-        slot; <code>-1</code> means no LED. Neither is printed on the hardware &mdash; run
+        slot; <code>-1</code> means no LED. <code>Colour</code> is <code>-1</code> for a monochrome
+        LED, or a palette index for a colour one &mdash; the button bank is mixed. Neither is printed on the hardware &mdash; run
         <code>mk3-learn buttons</code> to fill them in by pressing each button.
         <code>midi</code> takes <code>none</code>, <code>note CH N</code>, <code>cc CH N [VALUE]</code>,
         <code>pc CH N</code>, <code>start</code>, <code>stop</code> or <code>continue</code>.
       </p>
       <table>
         <thead><tr><th>Name</th><th style="width:6ch">Bit</th><th style="width:7ch">LED</th>
-        <th>MIDI</th><th style="width:13ch">Mode</th><th style="width:12ch">LED source</th><th></th></tr></thead>
+        <th style="width:8ch">Colour</th><th>MIDI</th><th style="width:13ch">Mode</th>
+        <th style="width:12ch">LED source</th><th></th></tr></thead>
         <tbody id="buttons"></tbody>
       </table>
       <div class="row" style="margin-top:.8rem">
@@ -288,7 +290,7 @@ function buildButtons() {
   tb.innerHTML = "";
   const names = Object.keys(cfg.button).sort((a, b) => cfg.button[a].bit - cfg.button[b].bit);
   if (!names.length) {
-    tb.innerHTML = `<tr><td colspan="7" class="hint">No buttons mapped yet. Run <code>mk3-learn buttons</code>.</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="8" class="hint">No buttons mapped yet. Run <code>mk3-learn buttons</code>.</td></tr>`;
     return;
   }
   for (const name of names) {
@@ -298,14 +300,16 @@ function buildButtons() {
       `<td>${name}</td>` +
       `<td><input type="number" min="0" max="${schema.button_bits - 1}" value="${b.bit}"></td>` +
       `<td><input type="number" min="-1" max="${schema.led_count - 1}" value="${b.led}"></td>` +
+      `<td><input type="number" min="-1" max="31" value="${b.led_colour}"></td>` +
       `<td><input value="${b.midi}"></td>` +
       `<td><select>${opts(schema.button_mode, b.mode)}</select></td>` +
       `<td><select>${opts(schema.led_mode, b.led_mode)}</select></td>` +
       `<td><button title="remove">x</button></td>`;
-    const [bit, led, midi] = $$("input", tr);
+    const [bit, led, colour, midi] = $$("input", tr);
     const [mode, ledMode] = $$("select", tr);
     bit.oninput = () => { b.bit = Number(bit.value || 0); };
     led.oninput = () => { b.led = Number(led.value); };
+    colour.oninput = () => { b.led_colour = Number(colour.value); };
     midi.oninput = () => { b.midi = midi.value; };
     mode.onchange = () => { b.mode = mode.value; };
     ledMode.onchange = () => { b.led_mode = ledMode.value; };
@@ -364,7 +368,7 @@ $("#fill").onclick = () => {
 $("#addbtn").onclick = () => {
   const name = $("#newbtn").value.trim();
   if (!/^[A-Za-z0-9_-]+$/.test(name)) { setStatus("bad button name", "bad"); return; }
-  cfg.button[name] = { bit: 0, led: -1, midi: "none", mode: "momentary", led_mode: "follow" };
+  cfg.button[name] = { bit: 0, led: -1, led_colour: -1, midi: "none", mode: "momentary", led_mode: "follow" };
   $("#newbtn").value = "";
   buildButtons();
 };

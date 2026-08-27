@@ -163,7 +163,7 @@ pad renders violet on the strip, and neither palette holds violet at that
 index. Its encoding is still unknown.
 
 Full details and the confirmed per-button slots are in
-[`led-map.md`](led-map.md).
+[`hardware-map.md`](hardware-map.md).
 
 ### Feature reports
 
