@@ -9,7 +9,10 @@
 //! the kernel immediately instead of parking it in the client's output queue.
 //! Nothing here allocates once the ports are open.
 
-use alsa::seq::{Addr, EvCtrl, EvNote, Event, EventType, PortCap, PortInfo, PortType, Seq};
+use alsa::seq::{
+    Addr, ClientIter, EvCtrl, EvNote, Event, EventType, PortCap, PortInfo, PortIter, PortType,
+    PortSubscribe, Seq,
+};
 use alsa::Direction;
 use anyhow::{Context, Result};
 use std::ffi::CString;
@@ -121,9 +124,75 @@ impl MidiIo {
         Ok(fds)
     }
 
+    /// Every sequencer port that could receive what we send.
+    ///
+    /// Some hosts list a port without ever subscribing to it, which looks
+    /// exactly like a driver that is not transmitting. Printing the candidates
+    /// makes the difference visible, and [`MidiIo::connect_to_matching`] can
+    /// make the connection from this side.
+    pub fn destinations(&self) -> Vec<(i32, i32, String)> {
+        let mut out = Vec::new();
+        for client in ClientIter::new(&self.seq) {
+            if client.get_client() == self.client || client.get_client() == 0 {
+                continue;
+            }
+            let cname = client.get_name().unwrap_or("?").to_string();
+            for port in PortIter::new(&self.seq, client.get_client()) {
+                let caps = port.get_capability();
+                if !caps.contains(PortCap::WRITE) || !caps.contains(PortCap::SUBS_WRITE) {
+                    continue;
+                }
+                out.push((
+                    client.get_client(),
+                    port.get_port(),
+                    format!("{cname}:{}", port.get_name().unwrap_or("?")),
+                ));
+            }
+        }
+        out
+    }
+
+    /// Subscribe every destination whose name contains one of `patterns`.
+    ///
+    /// Returns the names actually connected. Matching is case-insensitive and
+    /// on a substring, so `"REAPER"` is enough.
+    pub fn connect_to_matching(&self, patterns: &[String]) -> Vec<String> {
+        let mut done = Vec::new();
+        for (client, port, name) in self.destinations() {
+            let lower = name.to_lowercase();
+            if !patterns
+                .iter()
+                .any(|p| !p.is_empty() && lower.contains(&p.to_lowercase()))
+            {
+                continue;
+            }
+            match self.connect_to(client, port) {
+                Ok(()) => done.push(name),
+                Err(e) => eprintln!("[midi] could not connect to {name}: {e:#}"),
+            }
+        }
+        done
+    }
+
+    /// Subscribe `dest` to our output port.
+    pub fn connect_to(&self, dest_client: i32, dest_port: i32) -> Result<()> {
+        let sub = PortSubscribe::empty()?;
+        sub.set_sender(Addr {
+            client: self.client,
+            port: self.out_port,
+        });
+        sub.set_dest(Addr {
+            client: dest_client,
+            port: dest_port,
+        });
+        self.seq
+            .subscribe_port(&sub)
+            .with_context(|| format!("subscribing {dest_client}:{dest_port} to our output"))?;
+        Ok(())
+    }
+
     /// Subscribe our input port to `src`, so a DAW's output drives our LEDs.
     pub fn connect_from(&self, src_client: i32, src_port: i32) -> Result<()> {
-        use alsa::seq::PortSubscribe;
         let sub = PortSubscribe::empty()?;
         sub.set_sender(Addr {
             client: src_client,

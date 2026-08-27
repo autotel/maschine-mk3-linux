@@ -67,14 +67,56 @@ client 128: 'Maschine MK3'
 PipeWire and JACK both pick ALSA sequencer ports up automatically, so these
 appear in every host on the machine with no second backend.
 
+## Two files, and why
+
+**`devices/maschine-mk3.toml`** describes the hardware: which bit in the HID
+report is Play, which LED slot lights it, where it sits on the panel. None of
+it is a preference. It is compiled into the driver, so nothing needs
+installing; a copy at `~/.config/maschine-mk3/devices/maschine-mk3.toml`
+overrides it.
+
+**`config.toml`** is yours. It names controls the way the panel does and says
+what each should send:
+
+```toml
+[buttons]
+play = "cc 1 118"
+mute = { send = "cc 16 37", mode = "toggle" }
+```
+
+Keeping them apart means a correction to the hardware map cannot disturb your
+mapping, and that supporting another NI controller is a matter of writing a
+profile rather than changing the driver -- see
+[`docs/porting.md`](docs/porting.md).
+
+A name the device does not have is refused with a suggestion, rather than
+silently ignored:
+
+```
+buttons.plya: no control called that; did you mean play?
+```
+
 ## Configure
 
 Two ways, same file:
 
 ```sh
+mk3-gui                                      # a window
 $EDITOR ~/.config/maschine-mk3/config.toml   # text
-xdg-open http://127.0.0.1:8730/              # GUI
 ```
+
+`mk3-gui` shows the panel as a map, with every control where your hand expects
+it. Press something on the hardware and it lights up on screen and selects
+itself, so a button is configured by pressing it rather than by finding its
+name in a list. It starts the driver if it is not already running; the driver
+never opens a window.
+
+The two are separate processes on purpose: the driver holds a real-time input
+thread, and a window being resized must not be able to interfere with it. They
+talk over a Unix socket.
+
+There is also a browser page, off by default, for configuring a machine you are
+only logged into remotely -- set `general.gui_port` to enable it.
 
 The file is watched. Save it and the running driver picks the change up — no
 restart, no dropped notes. A file that fails to parse or validate is reported
@@ -89,7 +131,7 @@ The starter file that gets written on first run is commented throughout.
 ```toml
 [pads]
 channel = 10
-notes = [36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51]
+notes = [48, 49, 50, 51, 44, 45, 46, 47, 40, 41, 42, 43, 36, 37, 38, 39]
 curve = "soft"              # linear | soft | hard | fixed
 aftertouch = "poly"         # off | poly | channel
 threshold = 200             # ignore crosstalk from neighbouring pads
@@ -97,16 +139,18 @@ threshold = 200             # ignore crosstalk from neighbouring pads
 [knobs]
 channel = 1
 ccs = [16, 17, 18, 19, 20, 21, 22, 23]
-mode = "absolute"           # or "relative", with three host encodings
-pickup = "pickup"           # soft takeover
+mode = "accumulate"         # endless encoders, clamped rather than wrapping
+travel = 1000               # raw units for a full sweep
 
-[button.play]
-bit = 3                     # HID bit, from `mk3-learn buttons`
-led = 21                    # LED slot, from `mk3-learn leds`
-midi = "cc 1 118"
-mode = "trigger"
-led_mode = "midi"           # let the DAW light it
+# --- Transport ---------------------------------------------------
+play                  = "cc 16 45"
+rec                   = { send = "cc 16 46", mode = "toggle" }
+stop                  = "cc 16 47"
 ```
+
+The button section is grouped and headed the way the panel is -- transport,
+group buttons, what the screens show -- so finding a control means looking
+where your hand would.
 
 ## Mapping your unit's buttons
 
@@ -214,9 +258,29 @@ a `+` at the end of the permissions, meaning an ACL is granting you access.
 Only one process can. Check for a second `mk3d`, or a `mk3-learn test-display`
 still running.
 
-**Nothing arrives in the DAW** — check the port is connected:
-`aconnect -l`, then `aconnect 128:0 <your client>:0` if your host does not
-subscribe on its own.
+**The host lists the port but receives nothing** — it is almost always that the
+host has not subscribed. Listing a port and connecting to it are separate steps
+in ALSA, and a host that skips the second looks exactly like a driver that is
+not transmitting.
+
+```sh
+mk3d --list-ports          # what could receive our output
+aseqdump -p 128:0          # prove the driver is sending
+```
+
+If `aseqdump` shows events, the driver is fine. Connect from this side by
+naming the host in the config:
+
+```toml
+[general]
+connect_to = ["REAPER"]
+```
+
+or by hand, once: `aconnect 128:0 <client>:<port>`.
+
+If the host does not appear in `--list-ports` at all, it is not using the ALSA
+sequencer -- it is on JACK, and PipeWire's bridge exposes our port there
+instead. Connect it in the JACK graph (`qpwgraph`, `Carla`, or `jack_connect`).
 
 **Pads trigger their neighbours** — raise `pads.threshold`. The device's own
 per-pad calibration is readable with `mk3-learn info` (reports `0xda` and
@@ -236,8 +300,13 @@ src/
   ui.rs             what gets drawn on the screens
   gui.rs            the configuration web interface
   rt.rs             SCHED_FIFO and mlockall
+  profile.rs        the device description: bits, LED slots, panel positions
+  ipc.rs            the control socket the configuration app talks over
   bin/mk3d.rs       the daemon: threads, poll loop, hot reload
   bin/mk3_learn.rs  interactive hardware discovery
+  bin/mk3_gui.rs    the configuration window
+devices/
+  maschine-mk3.toml the hardware map, as data
 ```
 
 `cargo test` covers the parts that can be tested without hardware: report

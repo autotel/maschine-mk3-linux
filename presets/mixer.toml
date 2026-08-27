@@ -1,0 +1,127 @@
+[preset]
+name = "mixer"
+description = "Eight channel strips: knobs are level, group buttons are mute, pads are solo and record-arm."
+
+# MIXER
+#
+# Turns the MK3 into a control surface rather than an instrument.
+#
+# Knobs 1-8 send channel volume on MIDI channels 1-8, so a host that maps
+# \"CC 7 on channel N\" to strip N needs no further setup. Group buttons A-H
+# mute those same eight channels and latch, so the panel shows the mute state.
+#
+# The top row of pads solos and the second row arms; the bottom eight rows send
+# nothing, to leave room for whatever you want.
+
+[general]
+client_name = "Maschine MK3"
+out_port = "Controller Out"
+in_port = "Controller In"
+realtime_priority = 80
+lock_memory = true
+gui_port = 0
+gui_bind = "127.0.0.1"
+connect_to = []
+
+[display]
+enabled = true
+brightness = 80
+contrast = 50
+fps = 30
+title = "MIXER"
+
+[leds]
+enabled = true
+button_idle = 10
+button_active = 127
+fps = 60
+
+[pads]
+channel = 16
+notes = [60, 61, 62, 63, 64, 65, 66, 67, 88, 89, 90, 91, 92, 93, 94, 95]
+curve = "fixed"
+fixed_velocity = 127
+velocity_max = 2000
+aftertouch_max = 4095
+aftertouch_curve = "soft"
+threshold = 200
+aftertouch = "off"
+aftertouch_floor = 64
+press_sends_note = false
+idle_colour = 7
+active_colour = 17
+idle_level = 1
+
+[knobs]
+channel = 1
+# CC 7 on each of eight channels is done by the host; here they share channel 1
+ccs = [7, 8, 9, 10, 11, 12, 13, 14]
+mode = "accumulate"
+relative_format = "twos"
+high_resolution = false
+pickup = "pickup"
+deadband = 2
+travel = 1000
+initial = 100
+
+[encoder]
+channel = 1
+cc = 24
+mode = "absolute"
+relative_format = "twos"
+step = 2
+initial = 64
+
+[touchstrip]
+enabled = true
+channel = 1
+cc = 1
+leds = true
+led_reversed = false
+led_value = 0x1f
+
+[pedal]
+enabled = false
+channel = 1
+ccs = [64, 67]
+switch = true
+switch_threshold = 2048
+
+[buttons]
+
+# --- Transport -------------------------------------------------
+play                  = "cc 16 45"
+stop                  = "cc 16 47"
+rec                   = { send = "cc 16 46", mode = "toggle" }
+restart               = "cc 16 41"
+erase                 = "cc 16 42"
+tap                   = "cc 16 43"
+follow                = { send = "cc 16 44", mode = "toggle" }
+
+# --- Mute, per channel, latching -------------------------------
+a                     = { send = "cc 16 8", mode = "toggle" }
+b                     = { send = "cc 16 9", mode = "toggle" }
+c                     = { send = "cc 16 10", mode = "toggle" }
+d                     = { send = "cc 16 11", mode = "toggle" }
+e                     = { send = "cc 16 12", mode = "toggle" }
+f                     = { send = "cc 16 13", mode = "toggle" }
+g                     = { send = "cc 16 14", mode = "toggle" }
+h                     = { send = "cc 16 15", mode = "toggle" }
+
+# --- Section ---------------------------------------------------
+scene                 = { send = "cc 16 29", mode = "toggle" }
+pattern               = { send = "cc 16 30", mode = "toggle" }
+events                = { send = "cc 16 31", mode = "toggle" }
+variation             = { send = "cc 16 33", mode = "toggle" }
+duplicate             = { send = "cc 16 34", mode = "toggle" }
+select                = { send = "cc 16 35", mode = "toggle" }
+solo                  = { send = "cc 16 36", mode = "toggle" }
+mute                  = { send = "cc 16 37", mode = "toggle" }
+
+# --- What the screens show -------------------------------------
+sampling              = { send = "cc 16 51", mode = "toggle" }
+mixer                 = { send = "cc 16 52", mode = "toggle" }
+plug-in               = { send = "cc 16 53", mode = "toggle" }
+channel-midi          = { send = "cc 16 56", mode = "toggle" }
+arranger              = { send = "cc 16 57", mode = "toggle" }
+browser               = { send = "cc 16 58", mode = "toggle" }

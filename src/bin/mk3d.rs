@@ -20,6 +20,9 @@ use maschine_mk3::engine::Engine;
 use maschine_mk3::hid::{self, ControlState, PadHit};
 use maschine_mk3::leds::{Leds, LED_COUNT};
 use maschine_mk3::midi::{MidiIo, Msg};
+use maschine_mk3::preset;
+use maschine_mk3::profile::Profile;
+use maschine_mk3::ipc::{self, Broadcaster, Event as IpcEvent, PresetEntry, Reply, Request};
 use maschine_mk3::{gui, rt, ui};
 use std::path::PathBuf;
 use std::os::unix::io::AsFd as _;
@@ -34,29 +37,48 @@ use std::time::{Duration, Instant};
 /// idempotent snapshots where the newest value is the only one that matters.
 struct Shared {
     leds: Mutex<[u8; LED_COUNT]>,
-    controls: Mutex<ControlState>,
+    outputs: Mutex<maschine_mk3::engine::Outputs>,
     /// Set by the watcher and the GUI; consumed by the core thread.
     pending_config: Mutex<Option<Config>>,
     /// Latest config, for the GUI to read and write.
     config: Mutex<Config>,
     /// Path the config came from.
     path: PathBuf,
+    /// Hardware description in force.
+    profile: Profile,
+    /// Where the profile came from.
+    profile_path: PathBuf,
     running: AtomicBool,
     /// Bumped whenever the core thread changes LED state.
     leds_generation: std::sync::atomic::AtomicU64,
+    /// Live hardware events, for the configuration app.
+    broadcast: Broadcaster,
 }
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let mut path: Option<PathBuf> = None;
     let mut write_default = false;
+    let mut list_ports = false;
+    let mut list_presets = false;
+    let mut load_preset: Option<String> = None;
+    let mut save_preset: Option<String> = None;
     while let Some(a) = args.next() {
         match a.as_str() {
             "-c" | "--config" => path = args.next().map(PathBuf::from),
             "--write-default-config" => write_default = true,
+            "--list-ports" => list_ports = true,
+            "--list-presets" => list_presets = true,
+            "--preset" => load_preset = args.next(),
+            "--save-preset" => save_preset = args.next(),
             "-h" | "--help" => {
                 eprintln!(
-                    "mk3d [-c CONFIG] [--write-default-config]\n\n\
+                    "mk3d [-c CONFIG] [OPTIONS]\n\n\
+                     \x20 --preset NAME           load a preset and run with it\n\
+                     \x20 --save-preset NAME      save the current config as a preset, then exit\n\
+                     \x20 --list-presets          show what is available\n\
+                     \x20 --list-ports            show sequencer destinations\n\
+                     \x20 --write-default-config  write a fresh config file\n\n\
                      Default config path: {}",
                     Config::default_path().display()
                 );
@@ -71,6 +93,57 @@ fn main() -> Result<()> {
         maschine_mk3::config_default::install(&path)?;
         eprintln!("wrote {}", path.display());
         return Ok(());
+    }
+
+    if list_presets {
+        let active = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| toml::from_str::<Config>(&t).ok())
+            .and_then(|c| c.preset)
+            .map(|p| p.name);
+        println!("Presets (user files shadow built-in ones of the same name):\n");
+        for e in preset::list() {
+            let mark = if active.as_deref() == Some(e.name.as_str()) {
+                "*"
+            } else {
+                " "
+            };
+            let src = match (e.origin, e.shadows_builtin) {
+                (preset::Origin::Builtin, _) => "built-in",
+                (preset::Origin::User, true) => "yours, shadows built-in",
+                (preset::Origin::User, false) => "yours",
+            };
+            println!("{mark} {:<12} {:<24} {}", e.name, format!("({src})"), e.description);
+        }
+        println!("\nUser presets live in {}", preset::dir().display());
+        println!("Load one with:  mk3d --preset NAME");
+        return Ok(());
+    }
+
+    let profile_path = Profile::default_path();
+    let profile = Profile::load_or_builtin(&profile_path)?;
+    eprintln!(
+        "[mk3d] device: {} ({} controls, {} from {})",
+        profile.device.name,
+        profile.control.len(),
+        if profile_path.exists() { "profile" } else { "built-in profile" },
+        if profile_path.exists() {
+            profile_path.display().to_string()
+        } else {
+            "the driver".into()
+        }
+    );
+
+    if let Some(name) = &save_preset {
+        let out = preset::save_from(name, "", &path)?;
+        eprintln!("saved the current config as `{name}` in {}", out.display());
+        eprintln!("edit its [preset] description so a chooser can say what it is");
+        return Ok(());
+    }
+
+    if let Some(name) = &load_preset {
+        preset::load_into(name, &path, &profile)?;
+        eprintln!("[mk3d] loaded preset `{name}`");
     }
 
     let cfg = if path.exists() {
@@ -102,14 +175,44 @@ fn main() -> Result<()> {
     let (c, p) = midi.in_addr();
     eprintln!("[mk3d] MIDI in:  {c}:{p} \"{}\"", cfg.general.in_port);
 
+    if list_ports {
+        eprintln!("[mk3d] sequencer destinations that could receive our output:");
+        for (c, p, name) in midi.destinations() {
+            eprintln!("         {c:>3}:{p:<3} {name}");
+        }
+        eprintln!(
+            "\nAdd any of these to general.connect_to in {} to subscribe them\n\
+             automatically, e.g.  connect_to = [\"REAPER\"]",
+            path.display()
+        );
+        return Ok(());
+    }
+
+    if !cfg.general.connect_to.is_empty() {
+        let done = midi.connect_to_matching(&cfg.general.connect_to);
+        if done.is_empty() {
+            eprintln!(
+                "[mk3d] general.connect_to matched nothing; run `mk3d --list-ports` \
+                 to see what is available"
+            );
+        } else {
+            for name in done {
+                eprintln!("[mk3d] connected output to {name}");
+            }
+        }
+    }
+
     let shared = Arc::new(Shared {
         leds: Mutex::new([0; LED_COUNT]),
-        controls: Mutex::new(ControlState::default()),
+        outputs: Mutex::new(Default::default()),
         pending_config: Mutex::new(None),
         config: Mutex::new(cfg.clone()),
         path: path.clone(),
+        profile: profile.clone(),
+        profile_path: profile_path.clone(),
         running: AtomicBool::new(true),
         leds_generation: std::sync::atomic::AtomicU64::new(0),
+        broadcast: Broadcaster::new(),
     });
 
     install_signal_handler();
@@ -132,6 +235,128 @@ fn main() -> Result<()> {
             .spawn(move || {
                 if let Err(e) = watch_thread(shared) {
                     eprintln!("[watch] stopped: {e:#}");
+                }
+            })?
+    };
+
+    let ipc_thread = {
+        let shared = shared.clone();
+        let running = Arc::new(AtomicBool::new(true));
+        let flag = running.clone();
+        // Mirror the shutdown flag, so stopping the driver closes the socket.
+        let mirror = shared.clone();
+        std::thread::Builder::new()
+            .name("mk3-ipc-flag".into())
+            .spawn(move || {
+                while mirror.running.load(Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(150));
+                }
+                flag.store(false, Ordering::SeqCst);
+            })?;
+        let broadcaster = shared.broadcast.clone();
+        let path = ipc::socket_path();
+        let get = {
+            let s = shared.clone();
+            move || {
+                // The file itself, not a re-serialisation of the parsed
+                // config: the shipped file is mostly comments explaining what
+                // each setting does, and round-tripping through the serialiser
+                // would hand the GUI a stripped copy to save back.
+                let text = std::fs::read_to_string(&s.path).unwrap_or_else(|_| {
+                    s.config.lock().unwrap().to_toml().unwrap_or_default()
+                });
+                (text, s.path.display().to_string())
+            }
+        };
+        let set = {
+            let s = shared.clone();
+            move |text: String| -> Result<()> {
+                let cfg: Config = toml::from_str(&text).context("parsing config")?;
+                cfg.validate_against(&s.profile)?;
+                // Only the button tables are regenerated, so the comments in a
+                // hand-edited file survive a save from the GUI.
+                std::fs::write(&s.path, &text)
+                    .with_context(|| format!("writing {}", s.path.display()))?;
+                *s.config.lock().unwrap() = cfg.clone();
+                *s.pending_config.lock().unwrap() = Some(cfg);
+                Ok(())
+            }
+        };
+        let profile_src = {
+            let s = shared.clone();
+            move || {
+                let text = std::fs::read_to_string(&s.profile_path)
+                    .unwrap_or_else(|_| maschine_mk3::profile::BUILTIN_MK3.to_string());
+                let where_ = if s.profile_path.exists() {
+                    s.profile_path.display().to_string()
+                } else {
+                    "(built in)".to_string()
+                };
+                (text, where_)
+            }
+        };
+        let presets = {
+            let s = shared.clone();
+            move |req: Request| -> Reply {
+                let fail = |e: anyhow::Error| Reply::Error {
+                    message: format!("{e:#}"),
+                };
+                match req {
+                    Request::ListPresets => {
+                        let active = s.config.lock().unwrap().preset.clone().map(|p| p.name);
+                        Reply::Presets {
+                            entries: preset::list()
+                                .into_iter()
+                                .map(|e| PresetEntry {
+                                    name: e.name,
+                                    description: e.description,
+                                    builtin: e.origin == preset::Origin::Builtin,
+                                    shadows_builtin: e.shadows_builtin,
+                                })
+                                .collect(),
+                            dir: preset::dir().display().to_string(),
+                            active,
+                        }
+                    }
+                    Request::LoadPreset { name } => {
+                        match preset::load_into(&name, &s.path, &s.profile) {
+                            Ok(cfg) => {
+                                *s.config.lock().unwrap() = cfg.clone();
+                                *s.pending_config.lock().unwrap() = Some(cfg);
+                                Reply::Ok
+                            }
+                            Err(e) => fail(e),
+                        }
+                    }
+                    Request::SavePreset { name, description } => {
+                        match preset::save_from(&name, &description, &s.path) {
+                            Ok(_) => Reply::Ok,
+                            Err(e) => fail(e),
+                        }
+                    }
+                    Request::DeletePreset { name } => match preset::delete(&name) {
+                        Ok(()) => Reply::Ok,
+                        Err(e) => fail(e),
+                    },
+                    Request::ImportPreset { name, toml } => {
+                        match preset::import(&name, &toml, &s.profile) {
+                            Ok(_) => Reply::Ok,
+                            Err(e) => fail(e),
+                        }
+                    }
+                    _ => Reply::Error {
+                        message: "unhandled request".into(),
+                    },
+                }
+            }
+        };
+        std::thread::Builder::new()
+            .name("mk3-ipc".into())
+            .spawn(move || {
+                if let Err(e) =
+                    ipc::serve(&path, broadcaster, running, get, set, profile_src, presets)
+                {
+                    eprintln!("[ipc] stopped: {e:#}");
                 }
             })?
     };
@@ -167,11 +392,12 @@ fn main() -> Result<()> {
 
     // The core thread runs in this thread so that a panic here is fatal rather
     // than leaving a driver with no input.
-    core_loop(shared.clone(), &mut hid_in, &midi, cfg)?;
+    core_loop(shared.clone(), &mut hid_in, &midi, profile, cfg)?;
 
     shared.running.store(false, Ordering::SeqCst);
     let _ = surface.join();
     let _ = watcher.join();
+    let _ = ipc_thread.join();
     if let Some(g) = gui_thread {
         let _ = g.join();
     }
@@ -180,14 +406,20 @@ fn main() -> Result<()> {
 
 // ---------------------------------------------------------------------------
 
-fn core_loop(shared: Arc<Shared>, hid: &mut HidDev, midi: &MidiIo, cfg: Config) -> Result<()> {
+fn core_loop(
+    shared: Arc<Shared>,
+    hid: &mut HidDev,
+    midi: &MidiIo,
+    profile: Profile,
+    cfg: Config,
+) -> Result<()> {
     use std::os::unix::io::AsRawFd;
 
     if cfg.general.realtime_priority > 0 {
         rt::try_realtime(cfg.general.realtime_priority, "core");
     }
 
-    let mut engine = Engine::new(cfg);
+    let mut engine = Engine::new(profile, cfg);
     let mut leds = Leds::new();
     engine.paint_idle(&mut leds);
     publish_leds(&shared, &mut leds);
@@ -210,6 +442,7 @@ fn core_loop(shared: Arc<Shared>, hid: &mut HidDev, midi: &MidiIo, cfg: Config) 
     let mut fds: Vec<libc::pollfd> = std::iter::once(hid_fd).chain(seq_fds).collect();
 
     let mut last_reload_check = Instant::now();
+    let mut prev_controls = ControlState::default();
 
     while !stopping(&shared) {
         for f in fds.iter_mut() {
@@ -236,16 +469,43 @@ fn core_loop(shared: Arc<Shared>, hid: &mut HidDev, midi: &MidiIo, cfg: Config) 
                 match r[0] {
                     0x01 => {
                         if let Some(s) = ControlState::parse(&r[1..]) {
+                            let before = *engine.outputs();
                             engine.on_controls(&s, &mut leds, &mut send);
-                            if let Ok(mut slot) = shared.controls.try_lock() {
-                                *slot = s;
+                            let after = *engine.outputs();
+                            if let Ok(mut slot) = shared.outputs.try_lock() {
+                                *slot = after;
                             }
+                            // Serialising costs more than the whole mapping
+                            // step, so it only happens when someone is
+                            // actually listening.
+                            if shared.broadcast.has_clients() {
+                                report_controls(&shared, &prev_controls, &s, &before, &after);
+                            }
+                            prev_controls = s;
                         }
                     }
                     0x02 => {
                         hid::parse_pads(&r[1..], &mut hits);
                         if !hits.is_empty() {
                             engine.on_pads(&hits, &mut leds, &mut send);
+                            if shared.broadcast.has_clients() {
+                                for h in &hits {
+                                    let (down, value) = match h.event {
+                                        hid::PadEvent::NoteOn | hid::PadEvent::PressOn => {
+                                            (true, engine.config().pads.velocity(h.value))
+                                        }
+                                        hid::PadEvent::NoteOff | hid::PadEvent::PressOff => (false, 0),
+                                        hid::PadEvent::Aftertouch => {
+                                            (true, engine.config().pads.pressure(h.value))
+                                        }
+                                    };
+                                    shared.broadcast.send(&IpcEvent::Pad {
+                                        pad: h.pad,
+                                        down,
+                                        value,
+                                    });
+                                }
+                            }
                         }
                     }
                     _ => {}
@@ -284,6 +544,44 @@ fn core_loop(shared: Arc<Shared>, hid: &mut HidDev, midi: &MidiIo, cfg: Config) 
         }
     }
     Ok(())
+}
+
+/// Broadcast whatever changed in report `0x01`.
+fn report_controls(
+    shared: &Shared,
+    prev: &ControlState,
+    now: &ControlState,
+    before: &maschine_mk3::engine::Outputs,
+    after: &maschine_mk3::engine::Outputs,
+) {
+    for byte in 0..10 {
+        let changed = now.buttons[byte] ^ prev.buttons[byte];
+        let mut bits = changed;
+        while bits != 0 {
+            let b = bits.trailing_zeros() as usize;
+            bits &= bits - 1;
+            shared.broadcast.send(&IpcEvent::Button {
+                bit: byte * 8 + b,
+                down: now.buttons[byte] & (1 << b) != 0,
+            });
+        }
+    }
+    for i in 0..hid::KNOBS {
+        if after.knobs[i] != before.knobs[i] {
+            shared.broadcast.send(&IpcEvent::Knob {
+                knob: i,
+                value: after.knobs[i],
+            });
+        }
+    }
+    if after.encoder != before.encoder {
+        shared.broadcast.send(&IpcEvent::Encoder {
+            value: after.encoder,
+        });
+    }
+    if after.strip != before.strip {
+        shared.broadcast.send(&IpcEvent::Strip { value: after.strip });
+    }
 }
 
 fn publish_leds(shared: &Shared, leds: &mut Leds) {
@@ -385,8 +683,8 @@ fn surface_thread(shared: Arc<Shared>, mut hid: HidDev) -> Result<()> {
             if let Some(s) = screens.as_mut() {
                 let cfg = shared.config.lock().unwrap().clone();
                 if cfg.display.enabled {
-                    let ctrls = *shared.controls.lock().unwrap();
-                    surface.update(&cfg, &ctrls, &mut left, &mut right);
+                    let out = *shared.outputs.lock().unwrap();
+                    surface.update(&cfg, &out, &mut left, &mut right);
                     if let Err(e) = s.flush(0, &mut left).and_then(|_| s.flush(1, &mut right)) {
                         eprintln!("[surface] display write failed: {e:#}");
                     }
@@ -429,10 +727,13 @@ fn watch_thread(shared: Arc<Shared>) -> Result<()> {
         // Editors write in several steps; give the file a moment to settle.
         std::thread::sleep(Duration::from_millis(120));
         match Config::load(&shared.path) {
-            Ok(c) => {
-                *shared.config.lock().unwrap() = c.clone();
-                *shared.pending_config.lock().unwrap() = Some(c);
-            }
+            Ok(c) => match c.validate_against(&shared.profile) {
+                Ok(()) => {
+                    *shared.config.lock().unwrap() = c.clone();
+                    *shared.pending_config.lock().unwrap() = Some(c);
+                }
+                Err(e) => eprintln!("[watch] keeping the running config: {e:#}"),
+            },
             Err(e) => eprintln!("[watch] keeping the running config: {e:#}"),
         }
     }

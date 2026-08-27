@@ -7,7 +7,8 @@
 
 use crate::config::Config;
 use crate::display::{font, rgb, Frame, H, W};
-use crate::hid::{ControlState, KNOBS};
+use crate::engine::Outputs;
+use crate::hid::KNOBS;
 
 /// Colours used by the default surface.
 mod palette {
@@ -36,7 +37,7 @@ const CELL_W: usize = W / 4;
 
 /// Renders the default surface and tracks what it last drew.
 pub struct Surface {
-    last: [u16; KNOBS],
+    last: [u8; KNOBS],
     last_valid: bool,
     header_drawn: [bool; 2],
     status: String,
@@ -53,7 +54,7 @@ impl Surface {
     /// A surface that will paint everything on its first update.
     pub fn new() -> Self {
         Self {
-            last: [u16::MAX; KNOBS],
+            last: [u8::MAX; KNOBS],
             last_valid: false,
             header_drawn: [false; 2],
             status: String::new(),
@@ -78,7 +79,12 @@ impl Surface {
     }
 
     /// Redraw whatever changed. `left` and `right` are only dirtied where needed.
-    pub fn update(&mut self, cfg: &Config, s: &ControlState, left: &mut Frame, right: &mut Frame) {
+    ///
+    /// Driven by what the engine last transmitted, not by raw hardware
+    /// readings: the knobs are endless and their raw position rolls over, so a
+    /// meter drawn from it would wrap while the MIDI value it claims to show
+    /// stays pinned at the end.
+    pub fn update(&mut self, cfg: &Config, out: &Outputs, left: &mut Frame, right: &mut Frame) {
         for (i, frame) in [&mut *left, &mut *right].into_iter().enumerate() {
             if !self.header_drawn[i] {
                 frame.clear(palette::BG);
@@ -97,7 +103,7 @@ impl Surface {
         }
 
         for k in 0..KNOBS {
-            let v = s.knobs[k].min(crate::hid::KNOB_MAX);
+            let v = out.knobs[k].min(127);
             if self.last_valid && self.last[k] == v {
                 continue;
             }
@@ -116,7 +122,7 @@ impl Surface {
     }
 }
 
-fn draw_knob(frame: &mut Frame, cfg: &Config, k: usize, raw: u16) {
+fn draw_knob(frame: &mut Frame, cfg: &Config, k: usize, value: u8) {
     let col = k % 4;
     let x = col * CELL_W + 1;
     let w = CELL_W - 2;
@@ -128,7 +134,6 @@ fn draw_knob(frame: &mut Frame, cfg: &Config, k: usize, raw: u16) {
     let cc = cfg.knobs.ccs.get(k).copied().unwrap_or(0);
     frame.text_centred(x, w, y + 8, &font::SMALL, 1, palette::MUTED, &format!("CC {cc}"));
 
-    let shown = ((raw as u32 * 127) / crate::hid::KNOB_MAX as u32) as u16;
     frame.text_centred(
         x,
         w,
@@ -136,7 +141,7 @@ fn draw_knob(frame: &mut Frame, cfg: &Config, k: usize, raw: u16) {
         &font::LARGE,
         1,
         palette::FG,
-        &format!("{shown:>3}"),
+        &format!("{value:>3}"),
     );
 
     // Value bar along the bottom of the cell.
@@ -144,7 +149,7 @@ fn draw_knob(frame: &mut Frame, cfg: &Config, k: usize, raw: u16) {
     let bar_w = w.saturating_sub(24);
     let bar_y = y + h - 26;
     frame.rect(bar_x, bar_y, bar_w, 12, palette::BAR_BG);
-    let fill = (bar_w as u32 * raw as u32 / crate::hid::KNOB_MAX as u32) as usize;
+    let fill = (bar_w * value as usize) / 127;
     if fill > 0 {
         frame.rect(bar_x, bar_y, fill, 12, palette::BAR);
     }

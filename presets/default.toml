@@ -1,3 +1,7 @@
+[preset]
+name = "default"
+description = "Every control mapped: pads on channel 10, knobs on 1, buttons each on their own CC on channel 16."
+
 # Maschine MK3 -- Linux userspace driver
 #
 # Everything here is live: save the file and the running driver picks it up.

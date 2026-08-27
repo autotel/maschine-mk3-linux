@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Maschine MK3
+GenericName=Controller configuration
+Comment=Configure the Maschine MK3 as a MIDI controller
+Exec=mk3-gui
+Terminal=false
+Categories=AudioVideo;Audio;Settings;
+Keywords=MIDI;controller;Maschine;Native Instruments;
+StartupNotify=true

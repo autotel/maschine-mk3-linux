@@ -16,6 +16,11 @@ echo "==> installing binaries into ${bindir}"
 mkdir -p "$bindir"
 install -m755 target/release/mk3d "$bindir/"
 install -m755 target/release/mk3-learn "$bindir/"
+install -m755 target/release/mk3-gui "$bindir/"
+
+echo "==> installing desktop entry"
+install -d "${HOME}/.local/share/applications"
+install -m644 desktop/maschine-mk3.desktop "${HOME}/.local/share/applications/"
 
 if [ ! -f "$rules" ] || ! cmp -s udev/98-maschine-mk3.rules "$rules"; then
   echo "==> installing udev rules (needs sudo)"
@@ -34,11 +39,11 @@ cat <<MSG
 
 Installed.
 
+  mk3-gui                   the configuration window (starts the driver too)
   mk3d                      run the driver in the foreground
   mk3-learn buttons         map your unit's buttons
   systemctl --user enable --now maschine-mk3d
                             run it automatically
 
 Config: ${HOME}/.config/maschine-mk3/config.toml
-GUI:    http://127.0.0.1:8730/
 MSG

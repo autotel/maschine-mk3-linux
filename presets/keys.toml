@@ -1,0 +1,114 @@
+[preset]
+name = "keys"
+description = "Pads as two chromatic octaves with polyphonic aftertouch, knobs on the usual synth CCs."
+
+# KEYS
+#
+# Pads run chromatically from C2 at the bottom left, four semitones per row,
+# so the grid reads like a piano roll rather than a drum kit.
+#
+# Polyphonic aftertouch is on and shaped with the soft curve: the MK3's pads
+# reach the top of their range only in the last part of the travel, so a linear
+# response leaves pressure almost silent through the range you actually play.
+#
+# The touch strip sends modulation, and the group buttons are silent so they
+# can be used as octave or scale switches by a host that wants them.
+
+[general]
+client_name = "Maschine MK3"
+out_port = "Controller Out"
+in_port = "Controller In"
+realtime_priority = 80
+lock_memory = true
+gui_port = 0
+gui_bind = "127.0.0.1"
+connect_to = []
+
+[display]
+enabled = true
+brightness = 80
+contrast = 50
+fps = 30
+title = "KEYS"
+
+[leds]
+enabled = true
+button_idle = 10
+button_active = 127
+fps = 60
+
+[pads]
+channel = 1
+# C2 at the bottom left, ascending left to right and upwards
+notes = [48, 49, 50, 51, 44, 45, 46, 47, 40, 41, 42, 43, 36, 37, 38, 39]
+curve = "soft"
+fixed_velocity = 100
+velocity_max = 2000
+aftertouch_max = 4095
+aftertouch_curve = "soft"
+threshold = 0
+aftertouch = "poly"
+aftertouch_floor = 80
+press_sends_note = false
+idle_colour = 9
+active_colour = 17
+idle_level = 1
+
+[knobs]
+channel = 1
+# cutoff, resonance, attack, decay, sustain, release, and two spare
+ccs = [74, 71, 73, 75, 76, 77, 78, 79]
+mode = "accumulate"
+relative_format = "twos"
+high_resolution = false
+pickup = "jump"
+deadband = 2
+travel = 1000
+initial = 64
+
+[encoder]
+channel = 1
+cc = 24
+mode = "absolute"
+relative_format = "twos"
+step = 2
+initial = 64
+
+[touchstrip]
+enabled = true
+channel = 1
+# modulation
+cc = 1
+leds = true
+led_reversed = false
+led_value = 0x1f
+
+[pedal]
+enabled = true
+channel = 1
+# sustain, then expression
+ccs = [64, 11]
+switch = true
+switch_threshold = 2048
+
+[buttons]
+
+# --- Transport -------------------------------------------------
+play                  = "cc 16 45"
+stop                  = "cc 16 47"
+rec                   = { send = "cc 16 46", mode = "toggle" }
+restart               = "cc 16 41"
+erase                 = "cc 16 42"
+tap                   = "cc 16 43"
+follow                = { send = "cc 16 44", mode = "toggle" }
+
+# --- Touch strip modes -----------------------------------------
+notes                 = { send = "cc 16 16", mode = "toggle" }
+pitch                 = { send = "cc 16 38", mode = "toggle" }
+mod                   = { send = "cc 16 39", mode = "toggle" }
+perform               = { send = "cc 16 40", mode = "toggle" }
+
+# --- Octave and page -------------------------------------------
+arrow-left            = "cc 16 59"
+arrow-right           = "cc 16 50"
+shift                 = "cc 16 6"

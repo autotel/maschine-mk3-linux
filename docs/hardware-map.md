@@ -11,16 +11,16 @@ bit is which button; this table does. 66 of the 80 are accounted for.
 
 | byte | bit 0 | bit 1 | bit 2 | bit 3 | bit 4 | bit 5 | bit 6 | bit 7 |
 |---|---|---|---|---|---|---|---|---|
-| **0** (0-7) | — | — | — | — | — | — | Shift | Screen 8 |
-| **1** (8-15) | Group A | B | C | D | E | F | G | H |
-| **2** (16-23) | Notes | Volume | Swing | Tempo | — | Lock | — | — |
-| **3** (24-31) | Pad Mode | Keyboard | Chords | Step | Fixed Vel | Scene | Pattern | Events |
-| **4** (32-39) | — | Variation | Duplicate | Select | Solo | Mute | Pitch | Mod |
-| **5** (40-47) | Perform | Restart | Erase | Tap | Follow | **Play** | Rec | Stop |
-| **6** (48-55) | Macro | Settings | Arrow right | Sampling | Mixer | Plug-in | — | — |
-| **7** (56-63) | **Channel/MIDI** | Arranger | Browser | Arrow left | File | Auto | — | — |
-| **8** (64-71) | Screen 1 | 2 | 3 | 4 | 5 | 6 | 7 | Encoder touch |
-| **9** (72-79) | Knob 8 touch | 7 | 6 | 5 | 4 | 3 | 2 | Knob 1 touch |
+| **0** (0-7) | jogwheel-push | — | jogwheel-tilt-up | jogwheel-tilt-right | jogwheel-tilt-down | jogwheel-tilt-left | shift | screen-8 |
+| **1** (8-15) | a | b | c | d | e | f | g | h |
+| **2** (16-23) | notes | volume | swing | tempo | note-repeat | lock | — | — |
+| **3** (24-31) | pad-mode | keyboard | chords | step | fixed-vel | scene | pattern | events |
+| **4** (32-39) | — | variation | duplicate | select | solo | mute | pitch | mod |
+| **5** (40-47) | perform | restart | erase | tap | follow | play | rec | stop |
+| **6** (48-55) | macro | settings | arrow-right | sampling | mixer | plug-in | — | — |
+| **7** (56-63) | channel-midi | arranger | browser | arrow-left | file | auto | — | — |
+| **8** (64-71) | screen-1 | screen-2 | screen-3 | screen-4 | screen-5 | screen-6 | screen-7 | jogwheel-touched |
+| **9** (72-79) | knob-8-touch | knob-7-touch | knob-6-touch | knob-5-touch | knob-4-touch | knob-3-touch | knob-2-touch | knob-1-touch |
 
 Notes on the shape of it:
 
@@ -29,20 +29,18 @@ Notes on the shape of it:
   knob sensors — nine capacitive sensors in a descending run from bit 79.
 * **Screen button 8 is at bit 7**, in byte 0, not with the other seven in byte 8.
 
-### Still unidentified
+### Unused bits
 
-Bits `0 1 2 3 4 5 20 22 23 32 54 55 62 63`.
+`1 22 23 32 54 55 62 63`. Every labelled control on the panel is accounted for,
+so these are firmware padding, and their positions say so: 22/23, 54/55 and
+62/63 are the top two bits of their bytes.
 
-Six consecutive free bits at the bottom of byte 0 is a strong hint: the 4-D
-encoder needs five (press plus four tilts) and Note Repeat is the one labelled
-button not yet accounted for. Byte 2's gaps at 20, 22 and 23 sit next to Lock
-and Notes, which is where Note Repeat lives on the panel.
-
-The encoder is awkward to map because its touch sensor fires a few
-milliseconds before the direction bit. `mk3-learn buttons` handles this by
-accumulating everything that goes down over a 350 ms window and preferring a
-bit that is not already named, so once `bit 71` has a name the directions come
-through. `ignore 71` takes it out of consideration entirely.
+The encoder is the awkward one to map, because its touch sensor (bit 71) fires
+a few milliseconds *before* the direction bit. A tool that reads one report
+records the touch every time and the directions become unreachable. Both
+`mk3-learn buttons` and `mk3-learn leds` collect everything that goes down over
+a 350 ms window and prefer a bit that is not already spoken for; `ignore 71`
+removes it from consideration outright.
 
 ## LED slots
 
@@ -50,29 +48,52 @@ Two output reports, 62 bytes and 41, addressed as one flat array of 103 slots.
 
 | slots | count | what |
 |---|---|---|
-| 0-61 | 62 | buttons |
+| 0-61 | 62 | buttons, all identified |
 | 62-86 | 25 | touch strip |
 | 87-102 | 16 | pad grid |
 
-### Confirmed button LED slots
+### Button LED slots
 
-They come in fours, matching the panel's clusters:
+All 62 slots in output report `0x80`, complete. Ten buttons have no LED and
+there are no slots left over, which confirms it: `jogwheel-push`,
+`jogwheel-touched` and the eight `knob-N-touch` sensors.
 
 | slot | button | | slot | button |
 |---|---|---|---|---|
-| 0 | Channel / MIDI | | 8 | File / Save |
-| 1 | Plug-in / Instance | | 9 | Settings |
-| 2 | Arranger | | 10 | Auto |
-| 3 | Mixer | | 11 | Macro / Set |
-| 4 | Browser / +Plug-in | | 12 | Screen button 1 |
-| 5 | Sampling | | 13 | Screen button 2 |
-| 6 | Arrow left | | 14 | Screen button 3 |
-| 7 | Arrow right | | 15 | Screen button 4 |
-| 16 | Screen button 5 | | 18 | Screen button 7 |
-| 17 | Screen button 6 | | 19 | Screen button 8 |
+| 0 | channel-midi | | 31 | c *(colour)* |
+| 1 | plug-in | | 32 | d *(colour)* |
+| 2 | arranger | | 33 | e *(colour)* |
+| 3 | mixer | | 34 | f *(colour)* |
+| 4 | browser | | 35 | g *(colour)* |
+| 5 | sampling *(colour)* | | 36 | h *(colour)* |
+| 6 | arrow-left | | 37 | restart |
+| 7 | arrow-right | | 38 | erase |
+| 8 | file | | 39 | tap |
+| 9 | settings | | 40 | follow |
+| 10 | auto | | 41 | play *(colour)* |
+| 11 | macro | | 42 | rec *(colour)* |
+| 12 | screen-1 | | 43 | stop |
+| 13 | screen-2 | | 44 | shift |
+| 14 | screen-3 | | 45 | fixed-vel |
+| 15 | screen-4 | | 46 | pad-mode |
+| 16 | screen-5 | | 47 | keyboard |
+| 17 | screen-6 | | 48 | chords |
+| 18 | screen-7 | | 49 | step |
+| 19 | screen-8 | | 50 | scene |
+| 20 | volume | | 51 | pattern |
+| 21 | swing | | 52 | events |
+| 22 | note-repeat | | 53 | variation |
+| 23 | tempo | | 54 | duplicate |
+| 24 | lock | | 55 | select |
+| 25 | pitch | | 56 | solo |
+| 26 | mod | | 57 | mute |
+| 27 | perform | | 58 | jogwheel-tilt-up *(colour)* |
+| 28 | notes | | 59 | jogwheel-tilt-left *(colour)* |
+| 29 | a *(colour)* | | 60 | jogwheel-tilt-right *(colour)* |
+| 30 | b *(colour)* | | 61 | jogwheel-tilt-down *(colour)* |
 
-Slots 20-61 are the remaining buttons. Step through them with
-`mk3-learn leds 20 62`, which records each answer into the config as you go.
+Slots marked *(colour)* decode their byte as `(palette << 2) | level` rather
+than as brightness.
 
 ### Pad numbering
 

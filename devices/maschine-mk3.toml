@@ -1,0 +1,990 @@
+# Device profile: Native Instruments Maschine MK3
+#
+# This file describes the HARDWARE -- which bit in the HID report is which
+# button, which LED slot lights it, where it sits on the panel. None of it is a
+# preference; it is what the device is, and it was read off a real unit with
+# `mk3-learn`.
+#
+# Your own settings live in config.toml, which refers to controls by the names
+# below. Keeping the two apart means an update to this file cannot disturb your
+# mapping, and that supporting another NI controller is a matter of writing a
+# new profile rather than changing the driver.
+#
+# See docs/porting.md to write one for a different device.
+
+[device]
+name = "Maschine MK3"
+vendor = 0x17cc
+product = 0x1600
+
+[report]
+# HID input report carrying buttons, knobs, the encoder and the analog inputs.
+controls = 0x01
+# HID input report carrying pad events.
+pads = 0x02
+# HID output reports carrying LED state, as [report id, length in bytes].
+# The driver addresses them as one flat array in this order.
+led_banks = [[0x80, 62], [0x81, 41]]
+
+[layout]
+# Byte offsets inside the controls report, after the report id.
+buttons_offset = 0
+button_bits = 80
+encoder_offset = 10
+knobs_offset = 11
+knobs = 8
+# Knobs are endless encoders: this is the value they wrap at.
+knob_max = 999
+analog_offset = 27
+analog_count = 7
+
+pads = 16
+# 12-bit pad readings.
+pad_max = 4095
+
+# Flat LED slot where each block begins.
+pad_led_base = 87
+strip_led_base = 62
+strip_leds = 25
+# Slot order runs the same way as the finger.
+strip_led_reversed = false
+
+# Which analog field the touch strip reports on, and its full-scale value.
+# Field 0 is a free-running counter, not a control.
+strip_analog = 1
+strip_max = 1024
+# First analog field belonging to the rear pedal jack.
+pedal_analog_base = 4
+
+# Panel geometry, in the arbitrary grid units the controls below use.
+panel_width = 46.0
+panel_height = 25.0
+
+
+
+# ---------------------------------------------------------------------------
+# Controls
+#
+# `bit` is the index in the controls report's button field. `led` is the flat
+# LED slot; omitted where the control has no light. `led_colour` marks a slot
+# that decodes its byte as (palette << 2) | level rather than as brightness.
+# x/y/w/h place the control on the panel map in the configuration app.
+# ---------------------------------------------------------------------------
+
+
+[control."jogwheel-push"]
+kind = "button"
+label = "PUSH"
+bit = 0
+group = "encoder"
+x = 41.0
+y = 4.6
+w = 3.4
+h = 1.6
+
+[control."jogwheel-tilt-up"]
+kind = "button"
+label = "UP"
+bit = 2
+led = 58
+led_colour = 17
+group = "encoder"
+x = 41.0
+y = 6.4
+w = 3.4
+h = 1.6
+
+[control."jogwheel-tilt-right"]
+kind = "button"
+label = "RIGHT"
+bit = 3
+led = 60
+led_colour = 17
+group = "encoder"
+x = 41.0
+y = 11.8
+w = 3.4
+h = 1.6
+
+[control."jogwheel-tilt-down"]
+kind = "button"
+label = "DOWN"
+bit = 4
+led = 61
+led_colour = 17
+group = "encoder"
+x = 41.0
+y = 8.2
+w = 3.4
+h = 1.6
+
+[control."jogwheel-tilt-left"]
+kind = "button"
+label = "LEFT"
+bit = 5
+led = 59
+led_colour = 17
+group = "encoder"
+x = 41.0
+y = 10.0
+w = 3.4
+h = 1.6
+
+[control."shift"]
+kind = "button"
+label = "SHIFT"
+bit = 6
+led = 44
+group = "modifier"
+x = 12.1
+y = 20.8
+w = 3.4
+h = 1.6
+
+[control."screen-8"]
+kind = "button"
+label = "8"
+bit = 7
+led = 19
+group = "display"
+x = 29.4
+y = 0.5
+w = 2.6
+h = 1.6
+
+[control."a"]
+kind = "button"
+label = "A"
+bit = 8
+led = 29
+led_colour = 17
+group = "group"
+x = 8.4
+y = 13.0
+w = 2.6
+h = 1.6
+
+[control."b"]
+kind = "button"
+label = "B"
+bit = 9
+led = 30
+led_colour = 17
+group = "group"
+x = 11.2
+y = 13.0
+w = 2.6
+h = 1.6
+
+[control."c"]
+kind = "button"
+label = "C"
+bit = 10
+led = 31
+led_colour = 17
+group = "group"
+x = 14.0
+y = 13.0
+w = 2.6
+h = 1.6
+
+[control."d"]
+kind = "button"
+label = "D"
+bit = 11
+led = 32
+led_colour = 17
+group = "group"
+x = 16.8
+y = 13.0
+w = 2.6
+h = 1.6
+
+[control."e"]
+kind = "button"
+label = "E"
+bit = 12
+led = 33
+led_colour = 17
+group = "group"
+x = 8.4
+y = 14.9
+w = 2.6
+h = 1.6
+
+[control."f"]
+kind = "button"
+label = "F"
+bit = 13
+led = 34
+led_colour = 17
+group = "group"
+x = 11.2
+y = 14.9
+w = 2.6
+h = 1.6
+
+[control."g"]
+kind = "button"
+label = "G"
+bit = 14
+led = 35
+led_colour = 17
+group = "group"
+x = 14.0
+y = 14.9
+w = 2.6
+h = 1.6
+
+[control."h"]
+kind = "button"
+label = "H"
+bit = 15
+led = 36
+led_colour = 17
+group = "group"
+x = 16.8
+y = 14.9
+w = 2.6
+h = 1.6
+
+[control."notes"]
+kind = "button"
+label = "NOTES"
+bit = 16
+led = 28
+group = "strip-mode"
+x = 6.0
+y = 10.8
+w = 1.6
+h = 1.6
+
+[control."volume"]
+kind = "button"
+label = "VOLUME"
+bit = 17
+led = 20
+group = "level"
+x = 33.5
+y = 11.5
+w = 3.4
+h = 1.6
+
+[control."swing"]
+kind = "button"
+label = "SWING"
+bit = 18
+led = 21
+group = "level"
+x = 37.2
+y = 11.5
+w = 3.4
+h = 1.6
+
+[control."tempo"]
+kind = "button"
+label = "TEMPO"
+bit = 19
+led = 23
+group = "level"
+x = 33.5
+y = 13.4
+w = 3.4
+h = 1.6
+
+[control."note-repeat"]
+kind = "button"
+label = "NOTE RPT"
+bit = 20
+led = 22
+group = "pad-mode"
+x = 0.5
+y = 22.5
+w = 3.4
+h = 1.6
+
+[control."lock"]
+kind = "button"
+label = "LOCK"
+bit = 21
+led = 24
+group = "modifier"
+x = 15.8
+y = 20.8
+w = 3.4
+h = 1.6
+
+[control."pad-mode"]
+kind = "button"
+label = "PAD MODE"
+bit = 24
+led = 46
+group = "pad-mode"
+x = 0.5
+y = 14.9
+w = 3.4
+h = 1.6
+
+[control."keyboard"]
+kind = "button"
+label = "KEYBOARD"
+bit = 25
+led = 47
+group = "pad-mode"
+x = 0.5
+y = 16.8
+w = 3.4
+h = 1.6
+
+[control."chords"]
+kind = "button"
+label = "CHORDS"
+bit = 26
+led = 48
+group = "pad-mode"
+x = 0.5
+y = 18.7
+w = 3.4
+h = 1.6
+
+[control."step"]
+kind = "button"
+label = "STEP"
+bit = 27
+led = 49
+group = "pad-mode"
+x = 0.5
+y = 20.6
+w = 3.4
+h = 1.6
+
+[control."fixed-vel"]
+kind = "button"
+label = "FIXED VEL"
+bit = 28
+led = 45
+group = "pad-mode"
+x = 0.5
+y = 13.0
+w = 3.4
+h = 1.6
+
+[control."scene"]
+kind = "button"
+label = "SCENE"
+bit = 29
+led = 50
+group = "section"
+x = 4.4
+y = 13.0
+w = 3.4
+h = 1.6
+
+[control."pattern"]
+kind = "button"
+label = "PATTERN"
+bit = 30
+led = 51
+group = "section"
+x = 4.4
+y = 14.9
+w = 3.4
+h = 1.6
+
+[control."events"]
+kind = "button"
+label = "EVENTS"
+bit = 31
+led = 52
+group = "section"
+x = 4.4
+y = 16.8
+w = 3.4
+h = 1.6
+
+[control."variation"]
+kind = "button"
+label = "VARIATION"
+bit = 33
+led = 53
+group = "section"
+x = 4.4
+y = 18.7
+w = 3.4
+h = 1.6
+
+[control."duplicate"]
+kind = "button"
+label = "DUPLICATE"
+bit = 34
+led = 54
+group = "section"
+x = 4.4
+y = 20.6
+w = 3.4
+h = 1.6
+
+[control."select"]
+kind = "button"
+label = "SELECT"
+bit = 35
+led = 55
+group = "section"
+x = 4.4
+y = 22.5
+w = 3.4
+h = 1.6
+
+[control."solo"]
+kind = "button"
+label = "SOLO"
+bit = 36
+led = 56
+group = "section"
+x = 8.2
+y = 22.5
+w = 3.4
+h = 1.6
+
+[control."mute"]
+kind = "button"
+label = "MUTE"
+bit = 37
+led = 57
+group = "section"
+x = 11.9
+y = 22.5
+w = 3.4
+h = 1.6
+
+[control."pitch"]
+kind = "button"
+label = "PITCH"
+bit = 38
+led = 25
+group = "strip-mode"
+x = 0.5
+y = 10.8
+w = 1.6
+h = 1.6
+
+[control."mod"]
+kind = "button"
+label = "MOD"
+bit = 39
+led = 26
+group = "strip-mode"
+x = 2.3
+y = 10.8
+w = 1.6
+h = 1.6
+
+[control."perform"]
+kind = "button"
+label = "PERFORM"
+bit = 40
+led = 27
+group = "strip-mode"
+x = 4.1
+y = 10.8
+w = 1.7
+h = 1.6
+
+[control."restart"]
+kind = "button"
+label = "RESTART"
+bit = 41
+led = 37
+group = "transport"
+x = 8.4
+y = 17.0
+w = 3.4
+h = 1.6
+
+[control."erase"]
+kind = "button"
+label = "ERASE"
+bit = 42
+led = 38
+group = "transport"
+x = 12.1
+y = 17.0
+w = 3.4
+h = 1.6
+
+[control."tap"]
+kind = "button"
+label = "TAP"
+bit = 43
+led = 39
+group = "transport"
+x = 15.8
+y = 17.0
+w = 3.4
+h = 1.6
+
+[control."follow"]
+kind = "button"
+label = "FOLLOW"
+bit = 44
+led = 40
+group = "transport"
+x = 8.4
+y = 18.9
+w = 3.4
+h = 1.6
+
+[control."play"]
+kind = "button"
+label = "PLAY"
+bit = 45
+led = 41
+led_colour = 17
+group = "transport"
+x = 12.1
+y = 18.9
+w = 3.4
+h = 1.6
+
+[control."rec"]
+kind = "button"
+label = "REC"
+bit = 46
+led = 42
+led_colour = 17
+group = "transport"
+x = 15.8
+y = 18.9
+w = 3.4
+h = 1.6
+
+[control."stop"]
+kind = "button"
+label = "STOP"
+bit = 47
+led = 43
+group = "transport"
+x = 8.4
+y = 20.8
+w = 3.4
+h = 1.6
+
+[control."macro"]
+kind = "button"
+label = "MACRO"
+bit = 48
+led = 11
+group = "menu"
+x = 37.2
+y = 2.4
+w = 3.4
+h = 1.6
+
+[control."settings"]
+kind = "button"
+label = "SETTINGS"
+bit = 49
+led = 9
+group = "menu"
+x = 37.2
+y = 0.5
+w = 3.4
+h = 1.6
+
+[control."arrow-right"]
+kind = "button"
+label = ">"
+bit = 50
+led = 7
+group = "nav"
+x = 4.2
+y = 6.2
+w = 3.4
+h = 1.6
+
+[control."sampling"]
+kind = "button"
+label = "SAMPLING"
+bit = 51
+led = 5
+led_colour = 17
+group = "view"
+x = 4.2
+y = 4.3
+w = 3.4
+h = 1.6
+
+[control."mixer"]
+kind = "button"
+label = "MIXER"
+bit = 52
+led = 3
+group = "view"
+x = 4.2
+y = 2.4
+w = 3.4
+h = 1.6
+
+[control."plug-in"]
+kind = "button"
+label = "PLUG-IN"
+bit = 53
+led = 1
+group = "view"
+x = 4.2
+y = 0.5
+w = 3.4
+h = 1.6
+
+[control."channel-midi"]
+kind = "button"
+label = "CHANNEL"
+bit = 56
+led = 0
+group = "view"
+x = 0.5
+y = 0.5
+w = 3.4
+h = 1.6
+
+[control."arranger"]
+kind = "button"
+label = "ARRANGER"
+bit = 57
+led = 2
+group = "view"
+x = 0.5
+y = 2.4
+w = 3.4
+h = 1.6
+
+[control."browser"]
+kind = "button"
+label = "BROWSER"
+bit = 58
+led = 4
+group = "view"
+x = 0.5
+y = 4.3
+w = 3.4
+h = 1.6
+
+[control."arrow-left"]
+kind = "button"
+label = "<"
+bit = 59
+led = 6
+group = "nav"
+x = 0.5
+y = 6.2
+w = 3.4
+h = 1.6
+
+[control."file"]
+kind = "button"
+label = "FILE"
+bit = 60
+led = 8
+group = "menu"
+x = 33.5
+y = 0.5
+w = 3.4
+h = 1.6
+
+[control."auto"]
+kind = "button"
+label = "AUTO"
+bit = 61
+led = 10
+group = "menu"
+x = 33.5
+y = 2.4
+w = 3.4
+h = 1.6
+
+[control."screen-1"]
+kind = "button"
+label = "1"
+bit = 64
+led = 12
+group = "display"
+x = 9.0
+y = 0.5
+w = 2.6
+h = 1.6
+
+[control."screen-2"]
+kind = "button"
+label = "2"
+bit = 65
+led = 13
+group = "display"
+x = 11.8
+y = 0.5
+w = 2.6
+h = 1.6
+
+[control."screen-3"]
+kind = "button"
+label = "3"
+bit = 66
+led = 14
+group = "display"
+x = 14.6
+y = 0.5
+w = 2.6
+h = 1.6
+
+[control."screen-4"]
+kind = "button"
+label = "4"
+bit = 67
+led = 15
+group = "display"
+x = 17.4
+y = 0.5
+w = 2.6
+h = 1.6
+
+[control."screen-5"]
+kind = "button"
+label = "5"
+bit = 68
+led = 16
+group = "display"
+x = 21.0
+y = 0.5
+w = 2.6
+h = 1.6
+
+[control."screen-6"]
+kind = "button"
+label = "6"
+bit = 69
+led = 17
+group = "display"
+x = 23.8
+y = 0.5
+w = 2.6
+h = 1.6
+
+[control."screen-7"]
+kind = "button"
+label = "7"
+bit = 70
+led = 18
+group = "display"
+x = 26.6
+y = 0.5
+w = 2.6
+h = 1.6
+
+[control."jogwheel-touched"]
+kind = "button"
+label = "TOUCH"
+bit = 71
+group = "sensor"
+x = 41.0
+y = 13.6
+w = 3.4
+h = 1.6
+
+[control."knob-8-touch"]
+kind = "button"
+label = "KNOB-8-TOUCH"
+bit = 72
+group = "sensor"
+
+[control."knob-7-touch"]
+kind = "button"
+label = "KNOB-7-TOUCH"
+bit = 73
+group = "sensor"
+
+[control."knob-6-touch"]
+kind = "button"
+label = "KNOB-6-TOUCH"
+bit = 74
+group = "sensor"
+
+[control."knob-5-touch"]
+kind = "button"
+label = "T5"
+bit = 75
+group = "sensor"
+x = 21.0
+y = 11.5
+w = 3.4
+h = 1.6
+
+[control."knob-4-touch"]
+kind = "button"
+label = "KNOB-4-TOUCH"
+bit = 76
+group = "sensor"
+
+[control."knob-3-touch"]
+kind = "button"
+label = "KNOB-3-TOUCH"
+bit = 77
+group = "sensor"
+
+[control."knob-2-touch"]
+kind = "button"
+label = "KNOB-2-TOUCH"
+bit = 78
+group = "sensor"
+
+[control."knob-1-touch"]
+kind = "button"
+label = "T1"
+bit = 79
+group = "sensor"
+x = 9.0
+y = 11.5
+w = 3.4
+h = 1.6
+
+[control."pad-1"]
+kind = "pad"
+label = "PAD-1"
+index = 0
+
+[control."pad-2"]
+kind = "pad"
+label = "PAD-2"
+index = 1
+
+[control."pad-3"]
+kind = "pad"
+label = "PAD-3"
+index = 2
+
+[control."pad-4"]
+kind = "pad"
+label = "PAD-4"
+index = 3
+
+[control."pad-5"]
+kind = "pad"
+label = "PAD-5"
+index = 4
+
+[control."pad-6"]
+kind = "pad"
+label = "PAD-6"
+index = 5
+
+[control."pad-7"]
+kind = "pad"
+label = "PAD-7"
+index = 6
+
+[control."pad-8"]
+kind = "pad"
+label = "PAD-8"
+index = 7
+
+[control."pad-9"]
+kind = "pad"
+label = "PAD-9"
+index = 8
+
+[control."pad-10"]
+kind = "pad"
+label = "PAD-10"
+index = 9
+
+[control."pad-11"]
+kind = "pad"
+label = "PAD-11"
+index = 10
+
+[control."pad-12"]
+kind = "pad"
+label = "PAD-12"
+index = 11
+
+[control."pad-13"]
+kind = "pad"
+label = "PAD-13"
+index = 12
+
+[control."pad-14"]
+kind = "pad"
+label = "PAD-14"
+index = 13
+
+[control."pad-15"]
+kind = "pad"
+label = "PAD-15"
+index = 14
+
+[control."pad-16"]
+kind = "pad"
+label = "PAD-16"
+index = 15
+
+[control."knob-1"]
+kind = "knob"
+label = "KNOB-1"
+index = 0
+
+[control."knob-2"]
+kind = "knob"
+label = "KNOB-2"
+index = 1
+
+[control."knob-3"]
+kind = "knob"
+label = "KNOB-3"
+index = 2
+
+[control."knob-4"]
+kind = "knob"
+label = "KNOB-4"
+index = 3
+
+[control."knob-5"]
+kind = "knob"
+label = "KNOB-5"
+index = 4
+
+[control."knob-6"]
+kind = "knob"
+label = "KNOB-6"
+index = 5
+
+[control."knob-7"]
+kind = "knob"
+label = "KNOB-7"
+index = 6
+
+[control."knob-8"]
+kind = "knob"
+label = "KNOB-8"
+index = 7
+
+[control."encoder"]
+kind = "encoder"
+label = "4-D"
+index = 0
+x = 34.6
+y = 4.6
+w = 5.2
+h = 5.2
+
+[control."touch-strip"]
+kind = "strip"
+label = "TOUCH-STRIP"
+index = 0
+
+[control."screen-left"]
+kind = "screen"
+label = "SCREEN-LEFT"
+index = 0
+
+[control."screen-right"]
+kind = "screen"
+label = "SCREEN-RIGHT"
+index = 1

@@ -181,19 +181,44 @@ pub fn parse_pads(p: &[u8], out: &mut Vec<PadHit>) {
     }
 }
 
-/// Rings-aware delta between two readings of a 4-bit wrapping counter.
+/// Shortest signed path between two readings of a counter that wraps at
+/// `modulus`.
 ///
-/// Returns the shortest signed path, so a 15 -> 0 step reads as +1 rather
-/// than -15.
+/// Both the encoder and the knobs are endless: they report a position that
+/// rolls over rather than stopping at an end. Subtracting naively makes a
+/// single click across the seam read as a near-full-scale jump in the wrong
+/// direction, so movement has to be measured the short way round.
+#[inline]
+pub fn wrap_delta(prev: u16, now: u16, modulus: u16) -> i32 {
+    let m = modulus as i32;
+    let d = (now as i32 - prev as i32).rem_euclid(m);
+    if d > m / 2 {
+        d - m
+    } else {
+        d
+    }
+}
+
+/// [`wrap_delta`] for the encoder's 4-bit counter.
 #[inline]
 pub fn nibble_delta(prev: u8, now: u8) -> i8 {
-    let d = ((now as i8 - prev as i8) + 8).rem_euclid(16) - 8;
-    d
+    wrap_delta(prev as u16, now as u16, 16) as i8
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrap_delta_takes_the_short_way_round() {
+        // The knobs report 0..999 and roll over. One notch past the seam is a
+        // small step, not a 999-unit lurch.
+        assert_eq!(wrap_delta(998, 2, 1000), 4);
+        assert_eq!(wrap_delta(2, 998, 1000), -4);
+        assert_eq!(wrap_delta(100, 140, 1000), 40);
+        assert_eq!(wrap_delta(140, 100, 1000), -40);
+        assert_eq!(wrap_delta(500, 500, 1000), 0);
+    }
 
     #[test]
     fn encoder_wraps_both_ways() {

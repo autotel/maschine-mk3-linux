@@ -1,0 +1,159 @@
+[preset]
+name = "minimal"
+description = "Pads and knobs only. Every button is silent -- a clean base to build your own on."
+
+# MINIMAL
+#
+# Nothing but the pads and the knobs. Every button is listed but bound to
+# \"none\", so you can see the whole panel and fill in only what you want
+# without having to look up any names.
+#
+# Start here if the other presets have opinions you disagree with.
+
+[general]
+client_name = "Maschine MK3"
+out_port = "Controller Out"
+in_port = "Controller In"
+realtime_priority = 80
+lock_memory = true
+gui_port = 0
+gui_bind = "127.0.0.1"
+connect_to = []
+
+[display]
+enabled = true
+brightness = 80
+contrast = 50
+fps = 30
+title = "MINIMAL"
+
+[leds]
+enabled = true
+button_idle = 10
+button_active = 127
+fps = 60
+
+[pads]
+channel = 10
+notes = [48, 49, 50, 51, 44, 45, 46, 47, 40, 41, 42, 43, 36, 37, 38, 39]
+curve = "linear"
+fixed_velocity = 100
+velocity_max = 2000
+aftertouch_max = 4095
+aftertouch_curve = "soft"
+threshold = 0
+aftertouch = "poly"
+aftertouch_floor = 64
+press_sends_note = false
+idle_colour = 11
+active_colour = 17
+idle_level = 1
+
+[knobs]
+channel = 1
+ccs = [16, 17, 18, 19, 20, 21, 22, 23]
+mode = "accumulate"
+relative_format = "twos"
+high_resolution = false
+pickup = "jump"
+deadband = 2
+travel = 1000
+initial = 64
+
+[encoder]
+channel = 1
+cc = 24
+mode = "absolute"
+relative_format = "twos"
+step = 2
+initial = 64
+
+[touchstrip]
+enabled = true
+channel = 1
+cc = 1
+leds = true
+led_reversed = false
+led_value = 0x1f
+
+[pedal]
+enabled = false
+channel = 1
+ccs = [64, 67]
+switch = true
+switch_threshold = 2048
+
+[buttons]
+# Fill any of these in, e.g.  play = "cc 1 118"
+jogwheel-push         = "none"
+jogwheel-tilt-up      = "none"
+jogwheel-tilt-right   = "none"
+jogwheel-tilt-down    = "none"
+jogwheel-tilt-left    = "none"
+shift                 = "none"
+screen-8              = "none"
+a                     = "none"
+b                     = "none"
+c                     = "none"
+d                     = "none"
+e                     = "none"
+f                     = "none"
+g                     = "none"
+h                     = "none"
+notes                 = "none"
+volume                = "none"
+swing                 = "none"
+tempo                 = "none"
+note-repeat           = "none"
+lock                  = "none"
+pad-mode              = "none"
+keyboard              = "none"
+chords                = "none"
+step                  = "none"
+fixed-vel             = "none"
+scene                 = "none"
+pattern               = "none"
+events                = "none"
+variation             = "none"
+duplicate             = "none"
+select                = "none"
+solo                  = "none"
+mute                  = "none"
+pitch                 = "none"
+mod                   = "none"
+perform               = "none"
+restart               = "none"
+erase                 = "none"
+tap                   = "none"
+follow                = "none"
+play                  = "none"
+rec                   = "none"
+stop                  = "none"
+macro                 = "none"
+settings              = "none"
+arrow-right           = "none"
+sampling              = "none"
+mixer                 = "none"
+plug-in               = "none"
+channel-midi          = "none"
+arranger              = "none"
+browser               = "none"
+arrow-left            = "none"
+file                  = "none"
+auto                  = "none"
+screen-1              = "none"
+screen-2              = "none"
+screen-3              = "none"
+screen-4              = "none"
+screen-5              = "none"
+screen-6              = "none"
+screen-7              = "none"
+jogwheel-touched      = "none"
+knob-8-touch          = "none"
+knob-7-touch          = "none"
+knob-6-touch          = "none"
+knob-5-touch          = "none"
+knob-4-touch          = "none"
+knob-3-touch          = "none"
+knob-2-touch          = "none"
+knob-1-touch          = "none"

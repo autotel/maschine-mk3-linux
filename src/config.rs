@@ -23,7 +23,6 @@ use crate::hid::{KNOBS, PADS};
 pub const PAD_LED_BASE: usize = 87;
 /// LED slot of the touch strip's first LED.
 pub const STRIP_LED_BASE: usize = 62;
-
 /// Note numbers for [`PadCfg::notes`] laid out so the bottom-left pad is lowest.
 ///
 /// The device numbers its pads in reading order -- HID pad 0 is the **top**
@@ -46,6 +45,13 @@ use crate::midi::Msg;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    /// Where this set of settings came from, and what it is for.
+    ///
+    /// Optional: a config written by hand needs no header. It is filled in
+    /// when the file is saved as a preset, so a file passed to someone else
+    /// says what it is.
+    #[serde(default)]
+    pub preset: Option<PresetInfo>,
     /// Process-wide settings.
     pub general: General,
     /// Display behaviour.
@@ -62,13 +68,15 @@ pub struct Config {
     pub touchstrip: StripCfg,
     /// The rear pedal jack.
     pub pedal: PedalCfg,
-    /// Named buttons, keyed by the name shown in logs and the GUI.
-    pub button: BTreeMap<String, ButtonCfg>,
+    /// What each named control should send, keyed by its name in the device
+    /// profile.
+    pub buttons: BTreeMap<String, Binding>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            preset: None,
             general: General::default(),
             display: DisplayCfg::default(),
             leds: LedCfg::default(),
@@ -77,9 +85,21 @@ impl Default for Config {
             encoder: EncoderCfg::default(),
             touchstrip: StripCfg::default(),
             pedal: PedalCfg::default(),
-            button: BTreeMap::new(),
+            buttons: BTreeMap::new(),
         }
     }
+}
+
+/// What a preset file calls itself.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PresetInfo {
+    /// Short name, matching the file name.
+    pub name: String,
+    /// One line saying what it is for. Shown in the chooser.
+    pub description: String,
+    /// Who made it, for a preset that came from someone else.
+    pub author: String,
 }
 
 /// Process-wide settings.
@@ -96,10 +116,23 @@ pub struct General {
     pub realtime_priority: i32,
     /// Whether to `mlockall`, avoiding page faults in the input path.
     pub lock_memory: bool,
-    /// TCP port for the built-in configuration GUI; 0 disables it.
+    /// TCP port for the browser-based configuration page; 0 disables it.
+    ///
+    /// Off by default: `mk3-gui` is a native window talking over a Unix
+    /// socket, which needs no port and cannot be reached from the network.
+    /// This remains for configuring a machine you are only logged into
+    /// remotely.
     pub gui_port: u16,
     /// Address the GUI listens on. Loopback by default.
     pub gui_bind: String,
+    /// Sequencer destinations to connect our output to at startup.
+    ///
+    /// Matching is case-insensitive on a substring of `client:port`. Some
+    /// hosts list a MIDI input without ever subscribing to it, which is
+    /// indistinguishable from a driver that is not sending; naming the host
+    /// here makes the connection from this side instead. Empty means connect
+    /// to nothing and wait to be subscribed.
+    pub connect_to: Vec<String>,
 }
 
 impl Default for General {
@@ -110,8 +143,9 @@ impl Default for General {
             in_port: "Controller In".into(),
             realtime_priority: 80,
             lock_memory: true,
-            gui_port: 8730,
+            gui_port: 0,
             gui_bind: "127.0.0.1".into(),
+            connect_to: Vec::new(),
         }
     }
 }
@@ -244,8 +278,6 @@ pub struct PadCfg {
     pub active_colour: u8,
     /// Brightness step of an idle pad, 0..=3.
     pub idle_level: u8,
-    /// LED slot of pad 0; the remaining pads follow consecutively.
-    pub led_base: usize,
 }
 
 impl Default for PadCfg {
@@ -265,7 +297,6 @@ impl Default for PadCfg {
             idle_colour: 11,
             active_colour: 17,
             idle_level: 1,
-            led_base: PAD_LED_BASE,
         }
     }
 }
@@ -312,10 +343,22 @@ impl PadCfg {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum KnobMode {
-    /// Send the knob's position.
+    /// Send the knob's reported position directly.
+    ///
+    /// Only meaningful for a control that has end stops. The MK3's knobs do
+    /// not: they are endless encoders whose position rolls over from 999 to 0,
+    /// so this mode makes them jump. Use [`KnobMode::Accumulate`] instead.
     Absolute,
     /// Send the change since the last report, in a relative CC encoding.
+    ///
+    /// The host does the integrating, which needs it to be told the encoding.
     Relative,
+    /// Integrate movement here and send the running total, clamped at the ends.
+    ///
+    /// This is what makes an endless encoder behave like a knob with end
+    /// stops: turning up eventually reaches 127 and stays there rather than
+    /// wrapping round to 0. It needs no host support.
+    Accumulate,
 }
 
 /// How a host should read relative CCs.
@@ -377,6 +420,16 @@ pub struct KnobCfg {
     /// Ignore movements smaller than this many raw units; the knobs are noisy
     /// at rest and this stops a stream of redundant CCs.
     pub deadband: u16,
+    /// Raw units of travel that span the full output range, in accumulate mode.
+    ///
+    /// The knobs report 0..999 over one turn, so 1000 makes a single turn
+    /// sweep the whole CC range. Halve it to make them twice as fast.
+    pub travel: u16,
+    /// Where each knob sits when the driver starts, in accumulate mode.
+    ///
+    /// An endless encoder has no position to read back, so the starting value
+    /// has to be assumed. Centring is the least surprising choice.
+    pub initial: u8,
 }
 
 impl Default for KnobCfg {
@@ -384,11 +437,13 @@ impl Default for KnobCfg {
         Self {
             channel: 1,
             ccs: (16..16 + KNOBS as u8).collect(),
-            mode: KnobMode::Absolute,
+            mode: KnobMode::Accumulate,
             relative_format: RelFormat::Twos,
             high_resolution: false,
             pickup: Pickup::Jump,
             deadband: 2,
+            travel: 1000,
+            initial: 64,
         }
     }
 }
@@ -406,7 +461,12 @@ pub struct EncoderCfg {
     /// Relative encoding, when `mode = "relative"`.
     pub relative_format: RelFormat,
     /// Multiplier applied to each detent.
+    ///
+    /// At 1 a full sweep of 0..127 takes 128 clicks, which is a lot of
+    /// twisting; 2 halves it.
     pub step: i32,
+    /// Where the encoder sits when the driver starts.
+    pub initial: u8,
 }
 
 impl Default for EncoderCfg {
@@ -414,9 +474,10 @@ impl Default for EncoderCfg {
         Self {
             channel: 1,
             cc: 24,
-            mode: KnobMode::Relative,
+            mode: KnobMode::Absolute,
             relative_format: RelFormat::Twos,
-            step: 1,
+            step: 2,
+            initial: 64,
         }
     }
 }
@@ -431,26 +492,13 @@ pub struct StripCfg {
     pub channel: u8,
     /// CC number.
     pub cc: u8,
-    /// Which analog field the strip reports on.
-    ///
-    /// Field 1 on the units tested. `mk3-learn watch` prints all seven while
-    /// you slide a finger; if a different one moves, change this rather than
-    /// patching the driver. Field 0 is a free-running counter and must not be
-    /// used -- it would emit a CC on every report forever.
-    pub source: usize,
-    /// Value the strip reads at full deflection.
-    pub max: u16,
     /// Light the strip's LEDs to follow the finger.
     pub leds: bool,
-    /// LED slot of the strip's first LED.
-    pub led_base: usize,
-    /// How many LEDs the strip has.
-    pub led_count: usize,
-    /// Fill the meter from the high slot downwards.
+    /// Fill the meter from the far end.
     ///
-    /// Slot order ascends along the strip, but which physical end that starts
-    /// from relative to the finger's travel has not been confirmed. If the
-    /// meter fills from the wrong end, flip this.
+    /// Which physical end the profile's slot order starts from, relative to
+    /// the finger's travel, is a property of the hardware; this flips it if it
+    /// comes out backwards on your unit.
     pub led_reversed: bool,
     /// Raw LED byte written to a lit segment.
     ///
@@ -466,11 +514,7 @@ impl Default for StripCfg {
             enabled: true,
             channel: 1,
             cc: 1,
-            source: crate::hid::STRIP_ANALOG,
-            max: crate::hid::STRIP_MAX,
             leds: true,
-            led_base: STRIP_LED_BASE,
-            led_count: STRIP_LEDS,
             led_reversed: false,
             led_value: 0x1f,
         }
@@ -531,39 +575,65 @@ pub enum LedMode {
     Off,
 }
 
-/// One named button.
+/// What a named control should do.
+///
+/// Written either as a bare string, which is the common case:
+///
+/// ```toml
+/// [buttons]
+/// play = "cc 1 118"
+/// ```
+///
+/// or as a table when something other than the defaults is wanted:
+///
+/// ```toml
+/// [buttons]
+/// mute = { send = "cc 16 37", mode = "toggle" }
+/// ```
+///
+/// Where the control's bit and LED live is not written here at all -- that is
+/// in the device profile, which is a description of the hardware rather than
+/// of anyone's preferences.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Binding {
+    /// Just what to send; press behaviour and LED take their defaults.
+    Send(String),
+    /// The full form.
+    Full(ButtonCfg),
+}
+
+impl Binding {
+    /// Normalise either form into the full one.
+    pub fn resolve(&self) -> ButtonCfg {
+        match self {
+            Binding::Send(s) => ButtonCfg {
+                send: s.clone(),
+                ..Default::default()
+            },
+            Binding::Full(c) => c.clone(),
+        }
+    }
+}
+
+/// The long form of a control binding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ButtonCfg {
-    /// HID button-bit index, 0..80.
-    pub bit: usize,
-    /// LED slot, or `-1` when the button has no LED.
-    pub led: i32,
-    /// Palette index when this slot drives a colour LED; `-1` for monochrome.
-    ///
-    /// The button bank is mixed. A monochrome LED reads its byte as brightness
-    /// over 0..=127, but a colour one reads the same byte as
-    /// `(palette << 2) | level` -- so writing a modest brightness like 10 to a
-    /// colour LED selects palette 2 at level 2 and it comes up orange instead
-    /// of dim white. Sampling is the one confirmed so far.
-    pub led_colour: i32,
     /// MIDI to emit, in the compact form documented on [`Action`].
-    pub midi: String,
+    pub send: String,
     /// Press/release behaviour.
     pub mode: ButtonMode,
-    /// LED source.
-    pub led_mode: LedMode,
+    /// Where the LED takes its state from.
+    pub led: LedMode,
 }
 
 impl Default for ButtonCfg {
     fn default() -> Self {
         Self {
-            bit: 0,
-            led: -1,
-            led_colour: -1,
-            midi: "none".into(),
+            send: "none".into(),
             mode: ButtonMode::Momentary,
-            led_mode: LedMode::Follow,
+            led: LedMode::Follow,
         }
     }
 }
@@ -719,61 +789,45 @@ impl Config {
         Ok(())
     }
 
-    /// Rewrite only the `[button.*]` tables of an existing config file.
+    /// Write this config to `path`, preserving the file's comments.
     ///
     /// [`Config::save`] round-trips through the serialiser, which throws away
-    /// every comment in the file -- and the shipped config is mostly comments
-    /// explaining what the fields do. Discovery tools write often and would
-    /// strip the file bare on their first run, so they use this instead: the
-    /// text before the button tables is preserved byte for byte, and only the
-    /// button tables are regenerated.
+    /// every comment -- and the shipped file is mostly comments explaining
+    /// what the fields do. Anything that writes a config a human is expected
+    /// to keep reading must come through here instead: the existing document
+    /// is edited in place, so only the values change.
     ///
-    /// Comments written *inside* a `[button.x]` table are not preserved; there
-    /// is nowhere to put them once the table is regenerated.
-    pub fn write_buttons_preserving(path: &Path, buttons: &BTreeMap<String, ButtonCfg>) -> Result<()> {
+    /// A comment written *inside* a `[button.x]` table that no longer exists
+    /// goes with the table. Everything else survives.
+    pub fn save_preserving(&self, path: &Path) -> Result<()> {
         let original = match std::fs::read_to_string(path) {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 crate::config_default::STARTER_TOML.to_string()
             }
-            Err(e) => {
-                return Err(e).with_context(|| format!("reading {}", path.display()));
-            }
+            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
         };
+        let mut doc: toml_edit::DocumentMut = original
+            .parse()
+            .with_context(|| format!("parsing {}", path.display()))?;
 
-        let mut kept = String::with_capacity(original.len());
-        let mut in_button_table = false;
-        for line in original.lines() {
-            let t = line.trim_start();
-            // Only an unindented, uncommented table header can close or open a
-            // section; a `#` line is prose and stays put.
-            if t.starts_with('[') {
-                in_button_table = t.starts_with("[button.") || t.starts_with("[button]");
-            }
-            if !in_button_table {
-                kept.push_str(line);
-                kept.push('\n');
-            }
-        }
-        while kept.ends_with("\n\n") {
-            kept.pop();
-        }
+        let fresh: toml_edit::DocumentMut = toml_edit::ser::to_document(self)
+            .context("serialising config")?;
 
-        let mut out = kept;
-        if !out.ends_with('\n') {
-            out.push('\n');
+        for (key, item) in fresh.iter() {
+            match doc.get_mut(key) {
+                // The table already exists, so update its leaves and leave the
+                // prose around them alone.
+                Some(existing) => merge_preserving(existing, item),
+                None => {
+                    doc[key] = expand_inline_tables(item);
+                }
+            }
         }
-        // `toml::to_string` only serialises tables, so each scalar goes
-        // through `Value` to get correct quoting and escaping.
-        for (name, b) in buttons {
-            out.push_str(&format!(
-                "\n[button.{name}]\nbit = {}\nled = {}\nmidi = {}\nmode = {}\nled_mode = {}\n",
-                b.bit,
-                b.led,
-                scalar(&b.midi),
-                scalar(&b.mode),
-                scalar(&b.led_mode),
-            ));
+        // Drop bindings the config no longer has.
+        if let Some(buttons) = doc.get_mut("buttons").and_then(|b| b.as_table_mut()) {
+            let keep: Vec<String> = self.buttons.keys().cloned().collect();
+            buttons.retain(|k, _| keep.iter().any(|n| n == k));
         }
 
         if let Some(dir) = path.parent() {
@@ -782,13 +836,18 @@ impl Config {
         // Write via a temporary file so an interrupted run cannot leave a
         // half-written config behind.
         let tmp = path.with_extension("toml.tmp");
-        std::fs::write(&tmp, &out).with_context(|| format!("writing {}", tmp.display()))?;
+        std::fs::write(&tmp, doc.to_string())
+            .with_context(|| format!("writing {}", tmp.display()))?;
         std::fs::rename(&tmp, path)
             .with_context(|| format!("replacing {}", path.display()))?;
         Ok(())
     }
 
     /// Reject anything the engine would have to guess about at runtime.
+    ///
+    /// Only settings are checked here. Whether a control exists at all is a
+    /// question about the hardware, so it is checked against the profile by
+    /// [`Config::validate_against`].
     pub fn validate(&self) -> Result<()> {
         let chan = |name: &str, c: u8| -> Result<()> {
             if !(1..=16).contains(&c) {
@@ -837,111 +896,179 @@ impl Config {
                 self.pads.aftertouch_floor
             );
         }
-        if self.touchstrip.max == 0 {
-            bail!("touchstrip.max must be above 0");
+        if self.knobs.travel == 0 {
+            bail!("knobs.travel must be above 0");
         }
-        if self.touchstrip.enabled && self.touchstrip.source == 0 {
-            bail!(
-                "touchstrip.source 0 is the device's free-running counter, not a control; \
-                 field 1 is the strip"
-            );
+        if self.knobs.initial > 127 {
+            bail!("knobs.initial is 0..127");
         }
-        if self.pads.led_base + PADS > crate::leds::LED_COUNT {
-            bail!(
-                "pads.led_base {} puts pad {} past the last LED slot ({})",
-                self.pads.led_base,
-                PADS - 1,
-                crate::leds::LED_COUNT - 1
-            );
+        if self.encoder.initial > 127 {
+            bail!("encoder.initial is 0..127");
         }
-        if self.touchstrip.source >= crate::hid::ANALOGS {
-            bail!(
-                "touchstrip.source {} outside 0..{}",
-                self.touchstrip.source,
-                crate::hid::ANALOGS
-            );
-        }
-        if self.touchstrip.leds
-            && self.touchstrip.led_base + self.touchstrip.led_count > crate::leds::LED_COUNT
-        {
-            bail!(
-                "touchstrip LEDs {}..{} run past the last slot ({})",
-                self.touchstrip.led_base,
-                self.touchstrip.led_base + self.touchstrip.led_count,
-                crate::leds::LED_COUNT - 1
-            );
-        }
-        if self.pads.led_base < self.touchstrip.led_base + self.touchstrip.led_count
-            && self.touchstrip.led_base < self.pads.led_base + PADS
-        {
-            bail!("pads and touchstrip claim overlapping LED slots");
+        if self.encoder.step == 0 {
+            bail!("encoder.step must not be 0");
         }
 
-        let mut seen: BTreeMap<usize, &str> = BTreeMap::new();
-        for (name, b) in &self.button {
-            if b.bit >= crate::hid::BUTTON_BITS {
-                bail!("button.{name}: bit {} outside 0..80", b.bit);
-            }
-            if let Some(prev) = seen.insert(b.bit, name) {
-                bail!("button.{name} and button.{prev} both claim bit {}", b.bit);
-            }
-            if b.led_colour >= 32 {
-                bail!(
-                    "button.{name}: led_colour {} outside -1..31",
-                    b.led_colour
-                );
-            }
-            if b.led >= crate::leds::LED_COUNT as i32 {
-                bail!(
-                    "button.{name}: led {} outside 0..{}",
-                    b.led,
-                    crate::leds::LED_COUNT
-                );
-            }
-            Action::parse(&b.midi).with_context(|| format!("button.{name}.midi"))?;
+        for (name, binding) in &self.buttons {
+            let b = binding.resolve();
+            Action::parse(&b.send).with_context(|| format!("buttons.{name}"))?;
         }
         Ok(())
     }
 
-    /// Pre-parse every button action so the input path never parses strings.
-    pub fn compiled_buttons(&self) -> Vec<CompiledButton> {
-        let mut v: Vec<CompiledButton> = self
-            .button
-            .iter()
-            .map(|(name, b)| CompiledButton {
+    /// Check the config against the hardware it will run on.
+    ///
+    /// A name here that the profile does not have is almost always a typo, and
+    /// silently ignoring it means a control that simply never works with no
+    /// clue as to why. The message lists near matches.
+    pub fn validate_against(&self, profile: &crate::profile::Profile) -> Result<()> {
+        self.validate()?;
+        for name in self.buttons.keys() {
+            if profile.get(name).is_some() {
+                continue;
+            }
+            // A plain substring test matches far too eagerly -- "plya" would
+            // suggest "a" -- so require a shared run of at least three
+            // characters, or a single-character slip.
+            let near: Vec<&String> = profile
+                .control
+                .keys()
+                .filter(|k| {
+                    (k.len() >= 3 && (k.contains(name.as_str()) || name.contains(k.as_str())))
+                        || edit_distance_at_most(k, name, 2)
+                })
+                .take(4)
+                .collect();
+            if near.is_empty() {
+                bail!("buttons.{name}: no control called that on this device");
+            }
+            bail!(
+                "buttons.{name}: no control called that; did you mean {}?",
+                near.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            );
+        }
+        Ok(())
+    }
+
+    /// Join the config's bindings with the profile's hardware facts.
+    ///
+    /// Pre-parsing here keeps the input path free of string handling, and
+    /// joining here is what lets the config talk about `play` while the engine
+    /// works in bit indices.
+    pub fn compiled_buttons(&self, profile: &crate::profile::Profile) -> Vec<CompiledButton> {
+        let mut v: Vec<CompiledButton> = Vec::new();
+        for (name, binding) in &self.buttons {
+            let Some(control) = profile.get(name) else {
+                continue;
+            };
+            let Some(bit) = control.bit else { continue };
+            let b = binding.resolve();
+            v.push(CompiledButton {
                 name: name.clone(),
-                bit: b.bit,
-                led: b.led,
-                led_colour: b.led_colour,
-                action: Action::parse(&b.midi).unwrap_or(Action::None),
+                bit,
+                led: control.led.map(|l| l as i32).unwrap_or(-1),
+                led_colour: control.led_colour.map(|c| c as i32).unwrap_or(-1),
+                action: Action::parse(&b.send).unwrap_or(Action::None),
                 mode: b.mode,
-                led_mode: b.led_mode,
-            })
-            .collect();
+                led_mode: b.led,
+            });
+        }
         v.sort_by_key(|b| b.bit);
         v
     }
 }
 
-/// Render a serialisable scalar as a TOML literal, quoting and escaping it.
-fn scalar<T: Serialize>(v: &T) -> String {
-    match toml::Value::try_from(v) {
-        Ok(val) => val.to_string(),
-        // Every caller passes a plain string or a unit enum, so this is
-        // unreachable in practice; falling back to an empty string keeps the
-        // file parseable rather than truncating it.
-        Err(_) => "\"\"".to_string(),
+
+/// Whether `a` and `b` are within `max` single-character edits of each other.
+///
+/// Only used to suggest a name after a typo, so it bails out early rather than
+/// computing an exact distance for strings that are obviously unrelated.
+fn edit_distance_at_most(a: &str, b: &str, max: usize) -> bool {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    if a.len().abs_diff(b.len()) > max {
+        return false;
+    }
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut cur = vec![0usize; b.len() + 1];
+    for i in 1..=a.len() {
+        cur[0] = i;
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        if cur.iter().min().copied().unwrap_or(usize::MAX) > max {
+            return false;
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[b.len()] <= max
+}
+
+/// Rewrite inline tables as full `[section]` tables, recursively.
+///
+/// `toml_edit`'s serializer emits an inline table for anything it builds from
+/// scratch, so a section the file did not already have arrives as one very
+/// long line. That is valid TOML and unreadable, and an inline table cannot
+/// carry a comment of its own -- which matters here, because these files are
+/// meant to be edited by hand.
+///
+/// Arrays are left alone: `ccs = [16, 17, ...]` belongs on one line.
+pub fn expand_inline_tables(item: &toml_edit::Item) -> toml_edit::Item {
+    let table = match item {
+        toml_edit::Item::Value(toml_edit::Value::InlineTable(t)) => t.clone().into_table(),
+        toml_edit::Item::Table(t) => t.clone(),
+        other => return other.clone(),
+    };
+    let mut out = toml_edit::Table::new();
+    *out.decor_mut() = table.decor().clone();
+    for (k, v) in table.iter() {
+        out.insert(k, expand_inline_tables(v));
+    }
+    toml_edit::Item::Table(out)
+}
+
+/// Copy the values of `fresh` into `existing`, leaving its formatting alone.
+///
+/// Recursing rather than assigning wholesale is the point: replacing a table
+/// would replace its comments with none.
+pub fn merge_preserving(existing: &mut toml_edit::Item, fresh: &toml_edit::Item) {
+    match (existing.as_table_like_mut(), fresh.as_table_like()) {
+        (Some(dst), Some(src)) => {
+            for (k, v) in src.iter() {
+                match dst.get_mut(k) {
+                    Some(slot) if v.as_table_like().is_some() => merge_preserving(slot, v),
+                    Some(slot) => {
+                        // Carry the old value's decor across. That is where
+                        // both the comment above a setting and the one
+                        // trailing it on the same line are stored; assigning
+                        // the fresh value wholesale would drop them.
+                        match (slot.as_value(), v.as_value()) {
+                            (Some(old), Some(new)) => {
+                                let mut replacement = new.clone();
+                                *replacement.decor_mut() = old.decor().clone();
+                                *slot = toml_edit::Item::Value(replacement);
+                            }
+                            _ => *slot = v.clone(),
+                        }
+                    }
+                    None => {
+                        dst.insert(k, expand_inline_tables(v));
+                    }
+                }
+            }
+        }
+        _ => *existing = fresh.clone(),
     }
 }
 
 /// A button with its action already parsed.
 #[derive(Debug, Clone)]
 pub struct CompiledButton {
-    /// Config key.
+    /// Control name, as the profile and the config both write it.
     pub name: String,
-    /// HID bit.
+    /// HID bit, from the profile.
     pub bit: usize,
-    /// LED slot, negative when absent.
+    /// LED slot from the profile, negative when the control has no light.
     pub led: i32,
     /// Palette index for a colour LED, negative for monochrome.
     pub led_colour: i32,
@@ -1046,60 +1173,24 @@ mod tests {
     }
 
     #[test]
-    fn writing_buttons_keeps_the_rest_of_the_file_verbatim() {
-        let dir = std::env::temp_dir().join(format!("mk3cfg{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("config.toml");
-
-        let original = "\
-# a comment that must survive
-[pads]
-channel = 10   # and this trailing one
-notes = [48, 49, 50, 51, 44, 45, 46, 47, 40, 41, 42, 43, 36, 37, 38, 39]
-
-# commented-out example, also prose
-# [button.example]
-# bit = 3
-
-[button.old]
-bit = 7
-led = -1
-midi = \"none\"
-mode = \"momentary\"
-led_mode = \"follow\"
-";
-        std::fs::write(&path, original).unwrap();
-
-        let mut buttons = BTreeMap::new();
-        buttons.insert(
-            "play".to_string(),
-            ButtonCfg { bit: 45, led: 21, midi: "cc 1 118".into(), ..Default::default() },
-        );
-        Config::write_buttons_preserving(&path, &buttons).unwrap();
-
-        let out = std::fs::read_to_string(&path).unwrap();
-        assert!(out.contains("# a comment that must survive"));
-        assert!(out.contains("channel = 10   # and this trailing one"));
-        assert!(out.contains("# commented-out example, also prose"));
-        assert!(out.contains("[button.play]"));
-        assert!(out.contains("bit = 45"));
-        assert!(!out.contains("[button.old]"), "the retired button is gone");
-
-        // And the result must still parse and validate.
-        let back = Config::load(&path).unwrap();
-        assert_eq!(back.button["play"].bit, 45);
-        assert_eq!(back.button["play"].led, 21);
-        assert_eq!(back.button["play"].midi, "cc 1 118");
-        assert_eq!(back.pads.channel, 10);
-        std::fs::remove_dir_all(&dir).ok();
+    fn a_name_the_device_does_not_have_is_rejected() {
+        use crate::profile::Profile;
+        let mut c = Config::default();
+        c.buttons.insert("plya".into(), Binding::Send("cc 1 1".into()));
+        let err = c
+            .validate_against(&Profile::builtin())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("plya"), "{err}");
+        assert!(err.contains("play"), "a typo should suggest the real name: {err}");
     }
 
     #[test]
-    fn duplicate_button_bits_are_rejected() {
-        let mut c = Config::default();
-        c.button.insert("a".into(), ButtonCfg { bit: 3, ..Default::default() });
-        c.button.insert("b".into(), ButtonCfg { bit: 3, ..Default::default() });
-        assert!(c.validate().is_err());
+    fn shorthand_and_full_forms_agree() {
+        let short = Binding::Send("cc 1 118".into()).resolve();
+        assert_eq!(short.send, "cc 1 118");
+        assert_eq!(short.mode, ButtonMode::Momentary);
+        assert_eq!(short.led, LedMode::Follow);
     }
 
     #[test]

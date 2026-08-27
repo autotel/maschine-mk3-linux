@@ -14,6 +14,11 @@ path = "src/bin/mk3d.rs"
 name = "mk3-learn"
 path = "src/bin/mk3_learn.rs"
 
+[[bin]]
+name = "mk3-gui"
+path = "src/bin/mk3_gui.rs"
+required-features = ["gui"]
+
 [dependencies]
 alsa = "0.9"
 nusb = "0.1"
@@ -25,6 +30,15 @@ notify = { version = "6", default-features = false, features = ["macos_kqueue"] 
 futures-lite = "2"
 tiny_http = "0.12"
 serde_json = "1"
+eframe = { version = "0.27", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"], optional = true }
+egui = { version = "0.27", optional = true }
+toml_edit = "0.22"
+
+[features]
+default = ["gui"]
+# The configuration window. Off by default on a headless build: the driver
+# itself needs no windowing stack.
+gui = ["dep:eframe", "dep:egui"]
 
 [profile.release]
 opt-level = 3
