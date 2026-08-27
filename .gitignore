@@ -1,0 +1,32 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# Local config overrides (config/default.toml stays tracked)
+/config/local.toml
+/config/*.local.toml
+
+# Python tooling (tools/capture.py)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Protocol captures / dumps
+*.pcap
+*.pcapng
+*.usbmon
+*.log
+*.dump
+*.bin
+
+# initial set of reference info
+/info/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

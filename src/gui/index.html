@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maschine MK3</title>
+<style>
+  :root {
+    --bg: #14151a; --panel: #1c1e25; --panel2: #23262f; --line: #32363f;
+    --fg: #e7e9ee; --muted: #9aa0ad; --accent: #ff8a00; --ok: #4ec97a; --bad: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.5 ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+  header { position: sticky; top: 0; z-index: 5; display: flex; gap: 1rem; align-items: center;
+           padding: .75rem 1.25rem; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; margin: 0; letter-spacing: .08em; }
+  header .sp { flex: 1; }
+  button { font: inherit; background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+           border-radius: 6px; padding: .4rem .85rem; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #171717; border-color: var(--accent); font-weight: 600; }
+  #status { font-size: 12px; color: var(--muted); min-width: 16ch; }
+  #status.ok { color: var(--ok); } #status.bad { color: var(--bad); }
+  main { max-width: 1100px; margin: 0 auto; padding: 1.25rem; }
+  nav { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  nav button.on { border-color: var(--accent); color: var(--accent); }
+  section { display: none; } section.on { display: block; }
+  fieldset { border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+             margin: 0 0 1rem; padding: 1rem 1.15rem 1.15rem; }
+  legend { color: var(--accent); font-size: 12px; letter-spacing: .1em; padding: 0 .4rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: .75rem 1.25rem; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: .2rem; }
+  input, select, textarea { width: 100%; font: inherit; background: var(--panel2); color: var(--fg);
+                            border: 1px solid var(--line); border-radius: 5px; padding: .35rem .5rem; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  input[type=checkbox] { width: auto; }
+  .hint { font-size: 11px; color: var(--muted); margin-top: .3rem; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: .3rem .4rem; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; letter-spacing: .06em; }
+  td input, td select { padding: .2rem .35rem; }
+  textarea { min-height: 60vh; resize: vertical; white-space: pre; }
+  .row { display: flex; gap: .5rem; align-items: end; }
+  .pads { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; max-width: 380px; }
+  .pads .pad { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: .4rem; }
+  .pads .pad label { text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MASCHINE MK3</h1>
+  <span id="status">loading</span>
+  <span class="sp"></span>
+  <button id="reload">Reload from disk</button>
+  <button id="save" class="primary">Save &amp; apply</button>
+</header>
+
+<main>
+  <nav>
+    <button data-tab="pads" class="on">Pads</button>
+    <button data-tab="knobs">Knobs &amp; encoder</button>
+    <button data-tab="buttons">Buttons</button>
+    <button data-tab="device">Display &amp; LEDs</button>
+    <button data-tab="general">General</button>
+    <button data-tab="raw">Raw TOML</button>
+  </nav>
+
+  <section id="tab-pads" class="on">
+    <fieldset><legend>PADS</legend>
+      <div class="grid">
+        <div><label>MIDI channel</label><input type="number" min="1" max="16" data-p="pads.channel"></div>
+        <div><label>Velocity curve</label><select data-p="pads.curve" data-enum="curve"></select></div>
+        <div><label>Fixed velocity</label><input type="number" min="1" max="127" data-p="pads.fixed_velocity"></div>
+        <div><label>Hit threshold (0-4095)</label><input type="number" min="0" max="4095" data-p="pads.threshold"></div>
+        <div><label>Aftertouch</label><select data-p="pads.aftertouch" data-enum="aftertouch"></select></div>
+        <div><label>Aftertouch floor</label><input type="number" min="0" max="4095" data-p="pads.aftertouch_floor"></div>
+        <div><label><input type="checkbox" data-p="pads.press_sends_note"> Rested finger sends a note</label></div>
+      </div>
+      <p class="hint">Raise the threshold if hitting one pad makes a neighbour whisper.</p>
+    </fieldset>
+    <fieldset><legend>NOTE PER PAD</legend>
+      <div class="pads" id="padnotes"></div>
+      <div class="row" style="margin-top:.8rem">
+        <div><label>Fill from</label><input type="number" id="fillfrom" value="36" min="0" max="112"></div>
+        <button id="fill">Fill ascending</button>
+      </div>
+    </fieldset>
+    <fieldset><legend>PAD LEDS</legend>
+      <div class="grid">
+        <div><label>Idle colour (palette index)</label><input type="number" min="0" max="31" data-p="pads.idle_colour"></div>
+        <div><label>Active colour</label><input type="number" min="0" max="31" data-p="pads.active_colour"></div>
+        <div><label>Idle level (0-3)</label><input type="number" min="0" max="3" data-p="pads.idle_level"></div>
+        <div><label>LED slot of pad 0</label><input type="number" min="0" data-p="pads.led_base"></div>
+      </div>
+    </fieldset>
+  </section>
+
+  <section id="tab-knobs">
+    <fieldset><legend>KNOBS</legend>
+      <div class="grid">
+        <div><label>MIDI channel</label><input type="number" min="1" max="16" data-p="knobs.channel"></div>
+        <div><label>Mode</label><select data-p="knobs.mode" data-enum="knob_mode"></select></div>
+        <div><label>Relative format</label><select data-p="knobs.relative_format" data-enum="relative_format"></select></div>
+        <div><label>Soft takeover</label><select data-p="knobs.pickup" data-enum="pickup"></select></div>
+        <div><label>Deadband (raw units)</label><input type="number" min="0" max="100" data-p="knobs.deadband"></div>
+        <div><label><input type="checkbox" data-p="knobs.high_resolution"> 14-bit (cc and cc+32)</label></div>
+      </div>
+      <table style="margin-top:.9rem"><thead><tr><th>Knob</th><th>CC</th></tr></thead><tbody id="knobccs"></tbody></table>
+    </fieldset>
+    <fieldset><legend>4-D ENCODER</legend>
+      <div class="grid">
+        <div><label>MIDI channel</label><input type="number" min="1" max="16" data-p="encoder.channel"></div>
+        <div><label>CC</label><input type="number" min="0" max="127" data-p="encoder.cc"></div>
+        <div><label>Mode</label><select data-p="encoder.mode" data-enum="knob_mode"></select></div>
+        <div><label>Relative format</label><select data-p="encoder.relative_format" data-enum="relative_format"></select></div>
+        <div><label>Step per detent</label><input type="number" min="1" max="32" data-p="encoder.step"></div>
+      </div>
+    </fieldset>
+    <fieldset><legend>TOUCH STRIP</legend>
+      <div class="grid">
+        <div><label><input type="checkbox" data-p="touchstrip.enabled"> Enabled</label></div>
+        <div><label>MIDI channel</label><input type="number" min="1" max="16" data-p="touchstrip.channel"></div>
+        <div><label>CC</label><input type="number" min="0" max="127" data-p="touchstrip.cc"></div>
+      </div>
+    </fieldset>
+    <fieldset><legend>PEDAL JACK</legend>
+      <div class="grid">
+        <div><label><input type="checkbox" data-p="pedal.enabled"> Enabled</label></div>
+        <div><label>MIDI channel</label><input type="number" min="1" max="16" data-p="pedal.channel"></div>
+        <div><label>CC 1</label><input type="number" min="0" max="127" data-p="pedal.ccs.0"></div>
+        <div><label>CC 2</label><input type="number" min="0" max="127" data-p="pedal.ccs.1"></div>
+        <div><label><input type="checkbox" data-p="pedal.switch"> Treat as switch</label></div>
+        <div><label>Switch threshold</label><input type="number" min="0" max="4095" data-p="pedal.switch_threshold"></div>
+      </div>
+    </fieldset>
+  </section>
+
+  <section id="tab-buttons">
+    <fieldset><legend>BUTTONS</legend>
+      <p class="hint" style="margin-top:0">
+        <code>bit</code> is the button's index in the device's 80-bit field and <code>led</code> its LED
+        slot; <code>-1</code> means no LED. Neither is printed on the hardware &mdash; run
+        <code>mk3-learn buttons</code> to fill them in by pressing each button.
+        <code>midi</code> takes <code>none</code>, <code>note CH N</code>, <code>cc CH N [VALUE]</code>,
+        <code>pc CH N</code>, <code>start</code>, <code>stop</code> or <code>continue</code>.
+      </p>
+      <table>
+        <thead><tr><th>Name</th><th style="width:6ch">Bit</th><th style="width:7ch">LED</th>
+        <th>MIDI</th><th style="width:13ch">Mode</th><th style="width:12ch">LED source</th><th></th></tr></thead>
+        <tbody id="buttons"></tbody>
+      </table>
+      <div class="row" style="margin-top:.8rem">
+        <div><label>New button name</label><input id="newbtn" placeholder="play"></div>
+        <button id="addbtn">Add</button>
+      </div>
+    </fieldset>
+  </section>
+
+  <section id="tab-device">
+    <fieldset><legend>DISPLAYS</legend>
+      <div class="grid">
+        <div><label><input type="checkbox" data-p="display.enabled"> Enabled</label></div>
+        <div><label>Brightness (0-100)</label><input type="number" min="0" max="100" data-p="display.brightness"></div>
+        <div><label>Contrast (0-100)</label><input type="number" min="0" max="100" data-p="display.contrast"></div>
+        <div><label>Redraw ceiling (fps)</label><input type="number" min="1" max="60" data-p="display.fps"></div>
+        <div><label>Title</label><input data-p="display.title"></div>
+      </div>
+    </fieldset>
+    <fieldset><legend>LEDS</legend>
+      <div class="grid">
+        <div><label><input type="checkbox" data-p="leds.enabled"> Enabled</label></div>
+        <div><label>Idle brightness (0-127)</label><input type="number" min="0" max="127" data-p="leds.button_idle"></div>
+        <div><label>Active brightness (0-127)</label><input type="number" min="0" max="127" data-p="leds.button_active"></div>
+        <div><label>Update ceiling (fps)</label><input type="number" min="1" max="250" data-p="leds.fps"></div>
+      </div>
+    </fieldset>
+  </section>
+
+  <section id="tab-general">
+    <fieldset><legend>GENERAL</legend>
+      <div class="grid">
+        <div><label>ALSA client name</label><input data-p="general.client_name"></div>
+        <div><label>Output port name</label><input data-p="general.out_port"></div>
+        <div><label>Input port name</label><input data-p="general.in_port"></div>
+        <div><label>Real-time priority (0 = off)</label><input type="number" min="0" max="99" data-p="general.realtime_priority"></div>
+        <div><label><input type="checkbox" data-p="general.lock_memory"> Lock memory (mlockall)</label></div>
+        <div><label>GUI port (0 = off)</label><input type="number" min="0" max="65535" data-p="general.gui_port"></div>
+        <div><label>GUI bind address</label><input data-p="general.gui_bind"></div>
+      </div>
+      <p class="hint">Changing the port names or the GUI port takes effect on the next restart of the driver.</p>
+    </fieldset>
+  </section>
+
+  <section id="tab-raw">
+    <fieldset><legend>CONFIG.TOML</legend>
+      <textarea id="raw" spellcheck="false"></textarea>
+      <p class="hint">Saving from this pane sends the TOML verbatim, so comments you add here survive.</p>
+    </fieldset>
+  </section>
+</main>
+
+<script>
+"use strict";
+let cfg = null, schema = null, rawDirty = false;
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+
+function setStatus(msg, kind) {
+  const el = $("#status");
+  el.textContent = msg;
+  el.className = kind || "";
+}
+
+function dig(obj, path) {
+  return path.split(".").reduce((o, k) => (o == null ? o : o[k]), obj);
+}
+function place(obj, path, val) {
+  const keys = path.split(".");
+  const last = keys.pop();
+  let o = obj;
+  for (const k of keys) {
+    if (o[k] == null) o[k] = {};
+    o = o[k];
+  }
+  o[last] = val;
+}
+
+function fillEnums() {
+  for (const sel of $$("select[data-enum]")) {
+    const vals = schema[sel.dataset.enum] || [];
+    sel.innerHTML = vals.map((v) => `<option value="${v}">${v}</option>`).join("");
+  }
+}
+
+function bindFields() {
+  for (const el of $$("[data-p]")) {
+    const v = dig(cfg, el.dataset.p);
+    if (el.type === "checkbox") el.checked = !!v;
+    else if (v != null) el.value = v;
+    el.oninput = () => {
+      let out;
+      if (el.type === "checkbox") out = el.checked;
+      else if (el.type === "number") out = el.value === "" ? 0 : Number(el.value);
+      else out = el.value;
+      place(cfg, el.dataset.p, out);
+    };
+  }
+}
+
+function buildPadNotes() {
+  const wrap = $("#padnotes");
+  wrap.innerHTML = "";
+  // The device numbers pads in reading order, so HID pad 0 is the top-left
+  // one. Laying the grid out the same way makes the on-screen arrangement
+  // match what the hands see. The silkscreen number is shown alongside,
+  // because it counts from the bottom left instead.
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 4; col++) {
+      const i = row * 4 + col;
+      const silk = (3 - row) * 4 + col + 1;
+      const d = document.createElement("div");
+      d.className = "pad";
+      d.innerHTML = `<label>pad ${i} &middot; #${silk}</label><input type="number" min="0" max="127" value="${cfg.pads.notes[i]}">`;
+      $("input", d).oninput = (e) => { cfg.pads.notes[i] = Number(e.target.value || 0); };
+      wrap.appendChild(d);
+    }
+  }
+}
+
+function buildKnobCcs() {
+  const tb = $("#knobccs");
+  tb.innerHTML = "";
+  cfg.knobs.ccs.forEach((cc, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>knob ${i + 1}</td><td><input type="number" min="0" max="127" value="${cc}"></td>`;
+    $("input", tr).oninput = (e) => { cfg.knobs.ccs[i] = Number(e.target.value || 0); };
+    tb.appendChild(tr);
+  });
+}
+
+function opts(list, cur) {
+  return list.map((v) => `<option value="${v}"${v === cur ? " selected" : ""}>${v}</option>`).join("");
+}
+
+function buildButtons() {
+  const tb = $("#buttons");
+  tb.innerHTML = "";
+  const names = Object.keys(cfg.button).sort((a, b) => cfg.button[a].bit - cfg.button[b].bit);
+  if (!names.length) {
+    tb.innerHTML = `<tr><td colspan="7" class="hint">No buttons mapped yet. Run <code>mk3-learn buttons</code>.</td></tr>`;
+    return;
+  }
+  for (const name of names) {
+    const b = cfg.button[name];
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td>${name}</td>` +
+      `<td><input type="number" min="0" max="${schema.button_bits - 1}" value="${b.bit}"></td>` +
+      `<td><input type="number" min="-1" max="${schema.led_count - 1}" value="${b.led}"></td>` +
+      `<td><input value="${b.midi}"></td>` +
+      `<td><select>${opts(schema.button_mode, b.mode)}</select></td>` +
+      `<td><select>${opts(schema.led_mode, b.led_mode)}</select></td>` +
+      `<td><button title="remove">x</button></td>`;
+    const [bit, led, midi] = $$("input", tr);
+    const [mode, ledMode] = $$("select", tr);
+    bit.oninput = () => { b.bit = Number(bit.value || 0); };
+    led.oninput = () => { b.led = Number(led.value); };
+    midi.oninput = () => { b.midi = midi.value; };
+    mode.onchange = () => { b.mode = mode.value; };
+    ledMode.onchange = () => { b.led_mode = ledMode.value; };
+    $("button", tr).onclick = () => { delete cfg.button[name]; buildButtons(); };
+    tb.appendChild(tr);
+  }
+}
+
+function render() {
+  fillEnums();
+  bindFields();
+  buildPadNotes();
+  buildKnobCcs();
+  buildButtons();
+}
+
+async function load() {
+  setStatus("loading");
+  const [j, s, t] = await Promise.all([
+    fetch("/api/config.json").then((r) => r.json()),
+    fetch("/api/schema.json").then((r) => r.json()),
+    fetch("/api/config.toml").then((r) => r.text()),
+  ]);
+  cfg = j; schema = s;
+  $("#raw").value = t;
+  rawDirty = false;
+  render();
+  setStatus("loaded", "ok");
+}
+
+async function save() {
+  setStatus("saving");
+  const onRaw = $("#tab-raw").classList.contains("on");
+  const url = onRaw && rawDirty ? "/api/config.toml" : "/api/config.json";
+  const body = onRaw && rawDirty ? $("#raw").value : JSON.stringify(cfg);
+  const res = await fetch(url, { method: "POST", body });
+  const msg = await res.text();
+  if (res.ok) { setStatus("applied", "ok"); await load(); }
+  else setStatus(msg.split("\n")[0].slice(0, 90), "bad");
+}
+
+$("#raw").addEventListener("input", () => { rawDirty = true; });
+$("#save").onclick = () => save().catch((e) => setStatus(String(e), "bad"));
+$("#reload").onclick = () => load().catch((e) => setStatus(String(e), "bad"));
+$("#fill").onclick = () => {
+  // Fill so the bottom-left pad gets the lowest note, matching drum mapping
+  // convention rather than the device's reading-order numbering.
+  const base = Number($("#fillfrom").value || 36);
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 4; col++) {
+      cfg.pads.notes[row * 4 + col] = Math.min(127, base + (3 - row) * 4 + col);
+    }
+  }
+  buildPadNotes();
+};
+$("#addbtn").onclick = () => {
+  const name = $("#newbtn").value.trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) { setStatus("bad button name", "bad"); return; }
+  cfg.button[name] = { bit: 0, led: -1, midi: "none", mode: "momentary", led_mode: "follow" };
+  $("#newbtn").value = "";
+  buildButtons();
+};
+for (const b of $$("nav button")) {
+  b.onclick = () => {
+    $$("nav button").forEach((x) => x.classList.toggle("on", x === b));
+    $$("main section").forEach((s) => s.classList.toggle("on", s.id === "tab-" + b.dataset.tab));
+  };
+}
+load().catch((e) => setStatus(String(e), "bad"));
+</script>
+</body>
+</html>

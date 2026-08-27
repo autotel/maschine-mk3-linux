@@ -1,0 +1,33 @@
+[package]
+name = "maschine-mk3"
+version = "0.1.0"
+edition = "2021"
+authors = ["joaquin"]
+description = "Userspace driver turning the Native Instruments Maschine MK3 into a configurable MIDI controller on Linux"
+license = "GPL-3.0-or-later"
+
+[[bin]]
+name = "mk3d"
+path = "src/bin/mk3d.rs"
+
+[[bin]]
+name = "mk3-learn"
+path = "src/bin/mk3_learn.rs"
+
+[dependencies]
+alsa = "0.9"
+nusb = "0.1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+anyhow = "1"
+libc = "0.2"
+notify = { version = "6", default-features = false, features = ["macos_kqueue"] }
+futures-lite = "2"
+tiny_http = "0.12"
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"

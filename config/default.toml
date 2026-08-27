@@ -1,0 +1,196 @@
+# Maschine MK3 -- Linux userspace driver
+#
+# Everything here is live: save the file and the running driver picks it up.
+# A file that fails to parse or validate is reported and ignored, so a typo
+# never takes the controller down mid-session.
+#
+# Channels are 1-16 as written on a DAW's front panel.
+# Run `mk3-learn buttons` to fill in the [button.*] section for your unit.
+
+[general]
+client_name = "Maschine MK3"
+out_port = "Controller Out"
+in_port = "Controller In"
+# SCHED_FIFO priority for the input thread. 0 turns real-time scheduling off.
+# Needs rtprio headroom -- on most distributions, membership of the `audio` group.
+realtime_priority = 80
+lock_memory = true
+# Configuration web interface. Set gui_port = 0 to disable it.
+gui_port = 8730
+gui_bind = "127.0.0.1"
+
+[display]
+enabled = true
+brightness = 80          # 0-100
+contrast = 50            # 0-100
+fps = 30                 # redraw ceiling
+title = "MASCHINE MK3"
+
+[leds]
+enabled = true
+button_idle = 10         # 0-127
+button_active = 127
+fps = 60
+
+[pads]
+channel = 10
+# One note per pad, indexed by HID pad number.
+#
+# The device numbers pads in READING ORDER: HID pad 0 is the TOP-left pad, the
+# one silkscreened 13. Confirmed on hardware. The default below is transposed
+# so the bottom-left pad (silkscreen 1, HID 12) plays the lowest note, which is
+# what drum mapping conventions expect.
+#
+#   HID  0  1  2  3   = top row,    silkscreen 13 14 15 16
+#   HID  4  5  6  7   =             silkscreen  9 10 11 12
+#   HID  8  9 10 11   =             silkscreen  5  6  7  8
+#   HID 12 13 14 15   = bottom row, silkscreen  1  2  3  4
+#
+# For a plain ascending run in hardware order instead, use
+# notes = [36, 37, 38, ... 51].
+notes = [48, 49, 50, 51, 44, 45, 46, 47, 40, 41, 42, 43, 36, 37, 38, 39]
+# linear | soft | hard | fixed
+curve = "linear"
+fixed_velocity = 100
+# Raw hit value that maps to velocity 127.
+#
+# The pads report 12 bits but never use the range. Measured on a real MK3: a
+# hard hit lands around 1950, ordinary playing sits between 200 and 1400. If
+# you keep pinning at 127, raise this; if the pads feel weak, lower it.
+velocity_max = 2000
+# Raw pressure value that maps to aftertouch 127. Unlike strike velocity,
+# pressure really does use the whole 12-bit range -- leaning hard on a pad
+# reaches 4094.
+aftertouch_max = 4095
+# Shaping for pressure, separate from the strike curve above. Pressure is
+# steeply non-linear: it loiters between 30 and 150 through most of the
+# comfortable travel and only rockets to 4094 at the very end. "linear" would
+# leave aftertouch near zero for almost the whole gesture, so "soft" is the
+# default. linear | soft | hard
+aftertouch_curve = "soft"
+# Ignore hits below this raw 12-bit value (0-4095). Raise it if a hard hit on
+# one pad makes a neighbour whisper.
+threshold = 0
+# off | poly | channel
+aftertouch = "poly"
+aftertouch_floor = 64
+# Send a note when a finger rests on a pad without striking it.
+press_sends_note = false
+# Palette indices; see `mk3-learn palette` for the device's built-in ramp.
+# Idle pad colour. This is what the pads glow when nothing is being played --
+# set idle_level = 0 if you would rather they stayed dark.
+idle_colour = 11         # blue
+active_colour = 17       # white
+idle_level = 1           # 0 off, 1 dim, 2 normal, 3 bright
+# LED slot of pad 0. The 103 slots are 62 button slots, then the 25 touch strip
+# LEDs, then the 16 pads -- so the pads start at 87. See docs/led-map.md.
+led_base = 87
+
+[knobs]
+channel = 1
+ccs = [16, 17, 18, 19, 20, 21, 22, 23]
+# absolute | relative
+mode = "absolute"
+# twos | bin-offset | sign-bit  (only used when mode = "relative")
+relative_format = "twos"
+# Send 14-bit values as cc and cc+32. Requires every cc below 32.
+high_resolution = false
+# jump | pickup
+pickup = "jump"
+# Ignore movements smaller than this many raw units (knobs read 0-999).
+deadband = 2
+
+[encoder]
+channel = 1
+cc = 24
+mode = "relative"
+relative_format = "twos"
+step = 1
+
+[touchstrip]
+enabled = true
+channel = 1
+cc = 1
+# Which analog field the strip reports on. Field 1 on the units tested. Run
+# `mk3-learn watch` and slide a finger to check; if a different `analog N` line
+# moves, put that number here.
+#
+# Field 0 is a free-running counter, not a control. It advances on every report
+# and the driver refuses to use it as a source.
+source = 1
+# Value the strip reads at full deflection. It is 1024, not the pads' 4095.
+max = 1024
+# Light the strip's own LEDs to follow the finger.
+leds = true
+led_base = 62
+led_count = 25
+# Fill the meter from the high slot downwards. Slot order ascends along the
+# strip; which physical end that is relative to your finger is unconfirmed, so
+# flip this if the meter fills from the wrong end.
+led_reversed = false
+# Raw LED byte for a lit segment. The strip does not decode colour the way the
+# pads do -- the pads' green comes out violet here -- so this is a raw value,
+# not a palette index. Anything from 1 to 127; try a few.
+led_value = 0x1f
+
+[pedal]
+enabled = false
+channel = 1
+ccs = [64, 67]
+switch = true
+switch_threshold = 2048
+
+# ---------------------------------------------------------------------------
+# Buttons
+#
+# `bit` is the button's index in the device's 80-bit button field and `led` is
+# its slot in the 103-slot LED array. Neither is printed on the hardware; run
+#
+#     mk3-learn buttons        # press each button, name it
+#     mk3-learn leds           # step through LED slots, note what lights
+#
+# and the indices below get written for you.
+#
+# midi:     none | note CH N | cc CH N [VALUE] | pc CH N | start | stop | continue
+# mode:     momentary | toggle | trigger
+# led_mode: follow (mirror the button) | midi (mirror the host) | always | off
+# ---------------------------------------------------------------------------
+
+# LED slots confirmed on real hardware. Fill in each `bit` with
+# `mk3-learn buttons` and uncomment the ones you want.
+#
+#   slot  0-3    the four leftmost buttons above the displays
+#   slot  4      File / Save
+#   slot  5      Settings
+#   slot  6      Auto
+#   slot  7      Macro / Set
+#   slot  8      Browser / +Plug-in
+#   slot  9      Sampling          (a colour LED, not monochrome)
+#   slot 10      left arrow, below Browser
+#   slot 11      right arrow
+#   slot 12      Channel / MIDI
+#   slot 13      Plug-in / Instance
+#   slot 14      Arranger
+#   slot 15      Mixer
+#
+# Slots 16-61 are the remaining buttons; step through them with
+# `mk3-learn leds 16 62`.
+
+# Bits confirmed on hardware:
+#
+#   bit 45   Play
+#   bit 56   Channel / MIDI
+#
+# [button.play]
+# bit = 45
+# led = -1
+# midi = "cc 1 118"
+# mode = "trigger"
+# led_mode = "midi"
+
+# [button.channel_midi]
+# bit = 56
+# led = 12
+# midi = "none"
+# mode = "momentary"
+# led_mode = "follow"

@@ -1,0 +1,45 @@
+# Run the driver as a user service, started when the device appears.
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp systemd/maschine-mk3d.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now maschine-mk3d
+#
+# A user service is the right scope: the udev rule grants access to the seat's
+# logged-in user, so a system-wide service would have no more privilege and one
+# more way to fight over the device.
+
+[Unit]
+Description=Maschine MK3 userspace MIDI driver
+Documentation=https://github.com/
+After=sound.target pipewire.service
+Wants=sound.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/mk3d
+Restart=on-failure
+RestartSec=2
+
+# Real-time scheduling and mlockall. Both are requested by the driver and
+# degrade gracefully, but granting them here means it does not depend on the
+# login session's rlimits.
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+Nice=-10
+
+# The driver needs the HID node, the usbfs node and the ALSA sequencer.
+# Nothing else, so lock the rest down.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.config/maschine-mk3
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=false
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=default.target

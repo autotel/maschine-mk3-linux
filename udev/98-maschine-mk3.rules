@@ -1,0 +1,23 @@
+# Native Instruments Maschine MK3 -- userspace driver access.
+#
+# Two nodes need to be reachable without root:
+#
+#   * the hidraw node for USB interface 4 (pads, buttons, knobs, LEDs)
+#   * the usbfs node, so USB interface 5 (the displays) can be claimed
+#
+# TAG+="uaccess" hands both to whoever is logged in at the seat, which is the
+# same mechanism that gives a desktop user their sound card. That is narrower
+# than a blanket MODE="0666" and needs no group membership.
+#
+# Install:
+#   sudo cp udev/98-maschine-mk3.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload && sudo udevadm trigger
+# then unplug and replug the device.
+
+SUBSYSTEM=="usb", ATTR{idVendor}=="17cc", ATTR{idProduct}=="1600", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="17cc", ATTRS{idProduct}=="1600", TAG+="uaccess"
+
+# The MK3's audio interface benefits from a lower USB latency setting than the
+# default. This is safe: it only shortens the isochronous scheduling window.
+SUBSYSTEM=="sound", ATTRS{idVendor}=="17cc", ATTRS{idProduct}=="1600", \
+  ATTR{../../../power/control}="on"
