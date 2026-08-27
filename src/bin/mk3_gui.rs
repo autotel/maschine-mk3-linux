@@ -15,7 +15,7 @@
 use anyhow::{Context, Result};
 use eframe::egui;
 use maschine_mk3::config::Config;
-use maschine_mk3::ipc::{Client, Event, Outbound, Reply, Request};
+use maschine_mk3::ipc::{Client, Event, Outbound, PresetEntry, Reply, Request};
 use maschine_mk3::profile::{Control, ControlKind, Profile};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -87,6 +87,13 @@ struct App {
     follow_hardware: bool,
     raw_editor: bool,
     raw_text: String,
+    presets: Vec<PresetEntry>,
+    presets_dir: String,
+    active_preset: Option<String>,
+    /// Set while the "save as" popup is open.
+    save_as: Option<(String, String)>,
+    /// Set while the import popup is open.
+    import: Option<(String, String)>,
 }
 
 impl App {
@@ -111,6 +118,11 @@ impl App {
             follow_hardware: true,
             raw_editor: false,
             raw_text: String::new(),
+            presets: Vec::new(),
+            presets_dir: String::new(),
+            active_preset: None,
+            save_as: None,
+            import: None,
         };
         app.connect();
         app
@@ -125,6 +137,7 @@ impl App {
                 self.status = "connected".into();
                 self.status_bad = false;
                 self.load();
+                self.refresh_presets();
             }
             Err(_) if self.should_spawn => {
                 // Only try once: repeatedly spawning a driver that is failing
@@ -181,6 +194,48 @@ impl App {
                     self.status_bad = true;
                 }
             },
+            Ok(Reply::Error { message }) => {
+                self.status = message;
+                self.status_bad = true;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                self.status = format!("{e:#}");
+                self.status_bad = true;
+                self.client = None;
+            }
+        }
+    }
+
+    /// Ask the driver what presets exist.
+    fn refresh_presets(&mut self) {
+        let Some(client) = self.client.as_mut() else {
+            return;
+        };
+        if let Ok(Reply::Presets {
+            entries,
+            dir,
+            active,
+        }) = client.request(&Request::ListPresets, Duration::from_secs(2))
+        {
+            self.presets = entries;
+            self.presets_dir = dir;
+            self.active_preset = active;
+        }
+    }
+
+    /// Send a preset request and report the outcome in the status line.
+    fn preset_request(&mut self, req: Request, done: &str) {
+        let Some(client) = self.client.as_mut() else {
+            return;
+        };
+        match client.request(&req, Duration::from_secs(3)) {
+            Ok(Reply::Ok) => {
+                self.status = done.to_string();
+                self.status_bad = false;
+                self.load();
+                self.refresh_presets();
+            }
             Ok(Reply::Error { message }) => {
                 self.status = message;
                 self.status_bad = true;
@@ -415,6 +470,8 @@ impl eframe::App for App {
             });
         });
 
+        self.preset_bar(ctx);
+
         egui::SidePanel::right("inspector")
             .resizable(true)
             .default_width(340.0)
@@ -442,6 +499,215 @@ impl eframe::App for App {
 }
 
 impl App {
+    /// The preset strip under the toolbar.
+    ///
+    /// Presets are whole configurations, so switching one is a bigger step
+    /// than editing a field: it replaces the file. The driver keeps the
+    /// previous config beside it as `.toml.prev`, and the bar says so, because
+    /// an unlabelled button that silently discards an evening's work is not
+    /// something anyone should have to trust.
+    fn preset_bar(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::top("presets").show(ctx, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Preset:");
+                let current = self
+                    .active_preset
+                    .clone()
+                    .unwrap_or_else(|| "(unsaved)".into());
+                let mut chosen: Option<String> = None;
+                egui::ComboBox::from_id_source("preset-picker")
+                    .selected_text(&current)
+                    .width(180.0)
+                    .show_ui(ui, |ui| {
+                        for p in &self.presets {
+                            let label = if p.builtin {
+                                format!("{}  ·  built-in", p.name)
+                            } else if p.shadows_builtin {
+                                format!("{}  ·  yours (shadows built-in)", p.name)
+                            } else {
+                                format!("{}  ·  yours", p.name)
+                            };
+                            if ui
+                                .selectable_label(current == p.name, label)
+                                .on_hover_text(&p.description)
+                                .clicked()
+                            {
+                                chosen = Some(p.name.clone());
+                            }
+                        }
+                    });
+                if let Some(name) = chosen {
+                    if name != current {
+                        self.preset_request(
+                            Request::LoadPreset { name: name.clone() },
+                            &format!("loaded `{name}` (previous config kept as config.toml.prev)"),
+                        );
+                    }
+                }
+
+                if let Some(p) = self.presets.iter().find(|p| p.name == current) {
+                    ui.label(egui::RichText::new(&p.description).weak());
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Folder").on_hover_text(&self.presets_dir).clicked() {
+                        // Opening the directory is how a preset gets shared:
+                        // they are ordinary files, so sending one is sending a
+                        // file and receiving one is dropping it in here.
+                        let _ = std::process::Command::new("xdg-open")
+                            .arg(&self.presets_dir)
+                            .spawn();
+                    }
+                    if ui.button("Import...").clicked() {
+                        self.import = Some((String::new(), String::new()));
+                    }
+                    let deletable = self
+                        .presets
+                        .iter()
+                        .any(|p| p.name == current && !p.builtin);
+                    if ui
+                        .add_enabled(deletable, egui::Button::new("Delete"))
+                        .on_hover_text(if deletable {
+                            "Remove this preset file"
+                        } else {
+                            "Built-in presets cannot be deleted, only shadowed by one of yours"
+                        })
+                        .clicked()
+                    {
+                        self.preset_request(
+                            Request::DeletePreset {
+                                name: current.clone(),
+                            },
+                            &format!("deleted `{current}`"),
+                        );
+                    }
+                    if ui.button("Save as...").clicked() {
+                        self.save_as = Some((
+                            if current == "(unsaved)" {
+                                String::new()
+                            } else {
+                                current.clone()
+                            },
+                            self.presets
+                                .iter()
+                                .find(|p| p.name == current)
+                                .map(|p| p.description.clone())
+                                .unwrap_or_default(),
+                        ));
+                    }
+                });
+            });
+        });
+
+        self.save_as_window(ctx);
+        self.import_window(ctx);
+    }
+
+    fn save_as_window(&mut self, ctx: &egui::Context) {
+        let Some((mut name, mut desc)) = self.save_as.clone() else {
+            return;
+        };
+        let mut open = true;
+        let mut go = false;
+        egui::Window::new("Save preset")
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label("Name");
+                ui.text_edit_singleline(&mut name);
+                ui.small("Letters, digits, `-` and `_`. This becomes the file name.");
+                ui.add_space(6.0);
+                ui.label("What is it for?");
+                ui.text_edit_singleline(&mut desc);
+                ui.small("Shown in the chooser, and to whoever you send it to.");
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(!name.is_empty(), egui::Button::new("Save"))
+                        .clicked()
+                    {
+                        go = true;
+                    }
+                    if self.dirty {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(255, 138, 0),
+                            "unsaved edits are not included — apply them first",
+                        );
+                    }
+                });
+            });
+        if go {
+            self.preset_request(
+                Request::SavePreset {
+                    name: name.clone(),
+                    description: desc.clone(),
+                },
+                &format!("saved `{name}`"),
+            );
+            self.save_as = None;
+        } else if !open {
+            self.save_as = None;
+        } else {
+            self.save_as = Some((name, desc));
+        }
+    }
+
+    fn import_window(&mut self, ctx: &egui::Context) {
+        let Some((mut name, mut text)) = self.import.clone() else {
+            return;
+        };
+        let mut open = true;
+        let mut go = false;
+        egui::Window::new("Import a preset")
+            .collapsible(false)
+            .resizable(true)
+            .default_width(520.0)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(
+                    "Paste a preset someone sent you, or drop the .toml file into the                      presets folder and it will appear in the list.",
+                );
+                ui.add_space(6.0);
+                ui.label("Name");
+                ui.text_edit_singleline(&mut name);
+                ui.add_space(6.0);
+                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut text)
+                            .font(egui::TextStyle::Monospace)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(16),
+                    );
+                });
+                ui.add_space(6.0);
+                if ui
+                    .add_enabled(
+                        !name.is_empty() && !text.trim().is_empty(),
+                        egui::Button::new("Import"),
+                    )
+                    .clicked()
+                {
+                    go = true;
+                }
+                ui.small("It is checked against this device before anything is written.");
+            });
+        if go {
+            self.preset_request(
+                Request::ImportPreset {
+                    name: name.clone(),
+                    toml: text.clone(),
+                },
+                &format!("imported `{name}`"),
+            );
+            self.import = None;
+        } else if !open {
+            self.import = None;
+        } else {
+            self.import = Some((name, text));
+        }
+    }
+
     fn draw_panel(&mut self, ui: &mut egui::Ui) {
         let Some(profile) = self.profile.clone() else {
             ui.label("Waiting for the device profile...");

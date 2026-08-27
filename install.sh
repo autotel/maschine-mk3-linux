@@ -30,6 +30,15 @@ if [ ! -f "$rules" ] || ! cmp -s udev/98-maschine-mk3.rules "$rules"; then
   echo "    unplug and replug the Maschine so the new permissions take effect"
 fi
 
+echo "==> installing presets and the device profile"
+install -d "${HOME}/.config/maschine-mk3/presets" "${HOME}/.config/maschine-mk3/devices"
+# Only copy a preset that is not already there: an edited one must not be
+# clobbered by an upgrade.
+for f in presets/*.toml; do
+  [ -e "${HOME}/.config/maschine-mk3/presets/$(basename "$f")" ] || install -m644 "$f" "${HOME}/.config/maschine-mk3/presets/"
+done
+install -m644 devices/maschine-mk3.toml "${HOME}/.config/maschine-mk3/devices/"
+
 echo "==> installing systemd user unit"
 mkdir -p "$unitdir"
 install -m644 systemd/maschine-mk3d.service "$unitdir/"
@@ -41,6 +50,7 @@ Installed.
 
   mk3-gui                   the configuration window (starts the driver too)
   mk3d                      run the driver in the foreground
+  mk3d --list-presets       ready-made settings to start from
   mk3-learn buttons         map your unit's buttons
   systemctl --user enable --now maschine-mk3d
                             run it automatically

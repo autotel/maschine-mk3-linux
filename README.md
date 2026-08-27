@@ -96,6 +96,27 @@ silently ignored:
 buttons.plya: no control called that; did you mean play?
 ```
 
+## Presets
+
+A preset is a whole set of settings under a name, so "my drum kit" and "my
+mixer layout" are two files rather than an evening of re-editing.
+
+```sh
+mk3d --list-presets        # what is available, and which is loaded
+mk3d --preset drums        # load one and run
+mk3d --save-preset my-kit  # save the current settings under a name
+```
+
+Five ship with the driver, compiled in so they work with nothing installed:
+`default`, `drums`, `keys`, `mixer` and `minimal`. A file of your own with the
+same name shadows a built-in one, so you can adjust `drums` to taste and get
+the original back by deleting your copy.
+
+They are ordinary config files, so **sharing one means sending a file**. An
+imported preset is checked against the device before anything is written, and
+loading one keeps the previous config as `config.toml.prev`. See
+[`presets/README.md`](presets/README.md).
+
 ## Configure
 
 Two ways, same file:
@@ -305,8 +326,11 @@ src/
   bin/mk3d.rs       the daemon: threads, poll loop, hot reload
   bin/mk3_learn.rs  interactive hardware discovery
   bin/mk3_gui.rs    the configuration window
+  preset.rs         named sets of settings, and the shipped ones
 devices/
   maschine-mk3.toml the hardware map, as data
+presets/
+  *.toml            ready-made settings
 ```
 
 `cargo test` covers the parts that can be tested without hardware: report
