@@ -33,24 +33,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ALSA's headers and pkg-config are the whole list, GUI included: eframe
+      # reaches X11, Wayland, xkbcommon and EGL through dlopen, so none of them
+      # are linked against and none of their -dev packages are needed here.
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libasound2-dev \
-            libudev-dev \
             pkg-config \
-            libx11-dev \
-            libxkbcommon-dev \
-            libxcursor-dev \
-            libxrandr-dev \
-            libxi-dev \
-            libgl1-mesa-dev \
-            libwayland-dev \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev
+            libasound2-dev
 
       - name: Cache cargo registry and build
         uses: actions/cache@v4

@@ -31,26 +31,81 @@ changes worth making to them.
 Interface 5 has no kernel driver bound to it, so claiming it needs no unbind
 step — just permission on the usbfs node, which the shipped udev rule grants.
 
-## Install
+## Requirements
+
+### To run it
+
+The kernel side is `hidraw` and `usbfs`, both standard for well over a decade.
+No out-of-tree module, no kernel patch, and no libusb — USB is spoken directly
+through usbfs.
+
+`mk3d` and `mk3-learn` link four libraries, three of which are the C runtime:
+
+```
+libasound.so.2   libc.so.6   libm.so.6   libgcc_s.so.1
+```
+
+So in practice the only requirement is ALSA's runtime library, which is
+already present on any machine that plays sound: `libasound2t64` on current
+Debian and Ubuntu (`libasound2` on older ones), `alsa-lib` on Fedora and Arch.
+
+`mk3-gui` additionally needs a windowing stack — but it *loads* one rather
+than linking it, through `dlopen`, choosing between X11 and Wayland at
+startup:
+
+| path    | what it opens                                                                            |
+| ------- | ---------------------------------------------------------------------------------------- |
+| X11     | `libX11.so.6`, `libX11-xcb.so.1`, `libxcb.so.1`, `libXcursor.so.1`, `libXi.so.6`, `libXrender.so.1`, `libXinerama.so.1` |
+| Wayland | `libwayland-client.so.0`, `libwayland-egl.so.1`                                          |
+| both    | `libxkbcommon.so.0`, `libxkbcommon-x11.so.0`, `libEGL.so.1`                              |
+
+Every desktop install already has these. The consequence of `dlopen` worth
+knowing is that a missing one surfaces when the window opens, not when the
+binary starts -- so `mk3d` keeps working on a headless machine that could not
+run `mk3-gui` at all.
+
+### To build it
+
+A Rust toolchain, a C linker, and ALSA's *headers*:
 
 ```sh
-git clone <this repo> && cd maschine-mk3-linux
+sudo apt install build-essential pkg-config libasound2-dev   # Debian / Ubuntu
+sudo dnf install gcc pkgconf-pkg-config alsa-lib-devel       # Fedora
+sudo pacman -S base-devel alsa-lib                           # Arch
+```
+
+That is the whole list, GUI included. The X11, Wayland and GL packages above
+are **not** build dependencies: since they are dlopened, nothing links against
+them and no headers are consulted. This is checked rather than assumed -- CI
+installs nothing beyond those two packages, and the same build has been run
+from scratch in a bare `rust:slim` container to confirm it.
+
+## Install
+
+### From a release
+
+```sh
+tar xzf maschine-mk3-linux-*.tar.gz
+cd maschine-mk3-linux-*/
 ./install.sh
 ```
 
-That builds, installs `mk3d` and `mk3-learn` into `~/.local/bin`, installs the
-udev rule (the one step that asks for `sudo`), and installs a systemd user unit.
-**Unplug and replug the Maschine afterwards** so the new permissions apply.
+Prebuilt binaries are on the
+[releases page](https://github.com/autotel/maschine-mk3-linux/releases). They
+are built on current Ubuntu, so they need a glibc at least that new; if yours
+is older, build from source instead -- it is the shorter path anyway.
 
-Build dependencies are a Rust toolchain and ALSA's headers:
+### From source
 
 ```sh
-sudo apt install build-essential libasound2-dev   # Debian / Ubuntu
-sudo dnf install @development-tools alsa-lib-devel # Fedora
-sudo pacman -S base-devel alsa-lib                 # Arch
+git clone https://github.com/autotel/maschine-mk3-linux && cd maschine-mk3-linux
+./install.sh
 ```
 
-There is no libusb dependency; USB is spoken directly through usbfs.
+Either way it installs `mk3d`, `mk3-learn` and `mk3-gui` into `~/.local/bin`,
+the udev rule (the one step that asks for `sudo`), a desktop entry and a
+systemd user unit. **Unplug and replug the Maschine afterwards** so the new
+permissions apply.
 
 ## Run
 
