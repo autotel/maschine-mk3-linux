@@ -1,8 +1,9 @@
 name: Build
 
+# Pull requests only. Pushes to main are built by release.yml, which runs the
+# same tests and then publishes the result, so building here too would be the
+# same work twice.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch: {}

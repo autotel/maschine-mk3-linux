@@ -1,0 +1,133 @@
+name: Release
+
+# Publishes a downloadable tarball to the repository's Releases, which is what
+# the front page links to. Two ways in:
+#
+#   push a v* tag  -> a real, permanent release
+#   push to main   -> the rolling "nightly" prerelease is refreshed
+#
+# Actions artifacts are deliberately not the delivery mechanism: they expire,
+# and downloading one requires being logged in.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
+            libudev-dev \
+            pkg-config \
+            libx11-dev \
+            libxkbcommon-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libgl1-mesa-dev \
+            libwayland-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Test
+        run: cargo test --all-features
+
+      - name: Build
+        run: cargo build --release --all-features
+
+      - name: Package
+        id: package
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="nightly-$(git rev-parse --short HEAD)"
+          fi
+          name="maschine-mk3-linux-${version}-x86_64"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+          mkdir -p "dist/${name}/bin"
+          for b in mk3d mk3-learn mk3-gui; do
+            install -m755 "target/release/${b}" "dist/${name}/bin/${b}"
+            strip "dist/${name}/bin/${b}"
+          done
+
+          cp -r udev systemd desktop presets devices docs "dist/${name}/"
+          cp README.md "dist/${name}/"
+          if [ -f LICENSE ]; then cp LICENSE "dist/${name}/"; fi
+          install -m755 packaging/install-binary.sh "dist/${name}/install.sh"
+
+          tar -czf "dist/${name}.tar.gz" -C dist "${name}"
+          (cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256")
+          ls -la dist
+
+      - name: Publish tagged release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/*.tar.gz dist/*.sha256 \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
+
+      - name: Refresh rolling nightly release
+        if: github.ref_type != 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Move the tag so the release points at what was actually built.
+          # `nightly` does not match this workflow's `v*` tag filter, so pushing
+          # it cannot retrigger this job.
+          git tag -f nightly
+          git push -f origin nightly
+
+          notes="Automatic build of \`main\` at ${GITHUB_SHA}.
+
+          Unpack and run \`./install.sh\`. For a build that will not move under
+          you, use a tagged release instead."
+
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release upload nightly dist/*.tar.gz dist/*.sha256 --clobber
+            gh release edit nightly --notes "${notes}" --prerelease
+          else
+            gh release create nightly dist/*.tar.gz dist/*.sha256 \
+              --title "Nightly build" \
+              --notes "${notes}" \
+              --prerelease
+          fi
