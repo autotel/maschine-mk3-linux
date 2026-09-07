@@ -136,6 +136,22 @@ impl Engine {
         &self.profile
     }
 
+    /// Forget everything learned from a device that is no longer attached.
+    ///
+    /// A reconnected controller comes up with its LEDs dark and none of the
+    /// buttons that were held still held. Carrying the old snapshot across
+    /// would make the first report look like every changed control moving at
+    /// once, firing a burst of MIDI nobody asked for.
+    pub fn forget_device_state(&mut self) {
+        self.prev = ControlState::default();
+        self.have_prev = false;
+        self.pads = [PadState::default(); PADS];
+        self.chan_pressure = 0;
+        for k in self.knobs.iter_mut() {
+            k.seen = false;
+        }
+    }
+
     /// Paint the idle LED picture for the current config.
     pub fn paint_idle(&self, leds: &mut Leds) {
         if !self.cfg.leds.enabled {

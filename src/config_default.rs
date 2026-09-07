@@ -1,14 +1,15 @@
 //! The starter configuration.
 //!
-//! Shipped as commented TOML rather than as serialised defaults, because the
-//! file is meant to be read and edited by hand and `toml::to_string` throws
-//! comments away. A unit test parses it, so the comments cannot drift out of
-//! sync with the fields the driver actually accepts.
+//! It is the `default` preset, not a separate file: two copies of the same
+//! settings would drift, and the one a fresh install gets should be the same
+//! one the preset chooser offers. Shipped as commented TOML rather than as
+//! serialised defaults, because the file is meant to be read by hand and
+//! `toml::to_string` throws comments away.
 
 use crate::config::Config;
 
 /// The commented starter file, written when no config exists yet.
-pub const STARTER_TOML: &str = include_str!("../config/default.toml");
+pub const STARTER_TOML: &str = include_str!("../presets/default.toml");
 
 /// Parse [`STARTER_TOML`].
 ///

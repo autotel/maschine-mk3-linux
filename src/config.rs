@@ -125,6 +125,17 @@ pub struct General {
     pub gui_port: u16,
     /// Address the GUI listens on. Loopback by default.
     pub gui_bind: String,
+    /// Subscribe anything that looks like a host, as it appears.
+    ///
+    /// In ALSA, listing a port and subscribing to it are separate steps, and a
+    /// host that does only the first is indistinguishable from a driver that
+    /// is not sending. Rather than leave that to be discovered, the driver
+    /// connects from its side to every destination that is not a loopback or a
+    /// system port, and logs each one.
+    ///
+    /// Turn it off to wire things up by hand, or when several MIDI sources
+    /// would otherwise all arrive at the same place.
+    pub auto_connect: bool,
     /// Sequencer destinations to connect our output to at startup.
     ///
     /// Matching is case-insensitive on a substring of `client:port`. Some
@@ -145,6 +156,7 @@ impl Default for General {
             lock_memory: true,
             gui_port: 0,
             gui_bind: "127.0.0.1".into(),
+            auto_connect: true,
             connect_to: Vec::new(),
         }
     }

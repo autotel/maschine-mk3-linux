@@ -29,6 +29,7 @@ gui_bind = "127.0.0.1"
 # without ever connecting to it, which looks exactly like a driver that is not
 # sending. Run `mk3d --list-ports` to see what is available.
 #   connect_to = ["REAPER"]
+auto_connect = true
 connect_to = []
 
 [display]

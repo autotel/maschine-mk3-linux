@@ -849,121 +849,217 @@ h = 1.6
 kind = "pad"
 label = "PAD-1"
 index = 0
+x = 20.8
+y = 15.5
+w = 5.8
+h = 1.8
 
 [control."pad-2"]
 kind = "pad"
 label = "PAD-2"
 index = 1
+x = 27.1
+y = 15.5
+w = 5.8
+h = 1.8
 
 [control."pad-3"]
 kind = "pad"
 label = "PAD-3"
 index = 2
+x = 33.4
+y = 15.5
+w = 5.8
+h = 1.8
 
 [control."pad-4"]
 kind = "pad"
 label = "PAD-4"
 index = 3
+x = 39.7
+y = 15.5
+w = 5.8
+h = 1.8
 
 [control."pad-5"]
 kind = "pad"
 label = "PAD-5"
 index = 4
+x = 20.8
+y = 17.7
+w = 5.8
+h = 1.8
 
 [control."pad-6"]
 kind = "pad"
 label = "PAD-6"
 index = 5
+x = 27.1
+y = 17.7
+w = 5.8
+h = 1.8
 
 [control."pad-7"]
 kind = "pad"
 label = "PAD-7"
 index = 6
+x = 33.4
+y = 17.7
+w = 5.8
+h = 1.8
 
 [control."pad-8"]
 kind = "pad"
 label = "PAD-8"
 index = 7
+x = 39.7
+y = 17.7
+w = 5.8
+h = 1.8
 
 [control."pad-9"]
 kind = "pad"
 label = "PAD-9"
 index = 8
+x = 20.8
+y = 19.9
+w = 5.8
+h = 1.8
 
 [control."pad-10"]
 kind = "pad"
 label = "PAD-10"
 index = 9
+x = 27.1
+y = 19.9
+w = 5.8
+h = 1.8
 
 [control."pad-11"]
 kind = "pad"
 label = "PAD-11"
 index = 10
+x = 33.4
+y = 19.9
+w = 5.8
+h = 1.8
 
 [control."pad-12"]
 kind = "pad"
 label = "PAD-12"
 index = 11
+x = 39.7
+y = 19.9
+w = 5.8
+h = 1.8
 
 [control."pad-13"]
 kind = "pad"
 label = "PAD-13"
 index = 12
+x = 20.8
+y = 22.1
+w = 5.8
+h = 1.8
 
 [control."pad-14"]
 kind = "pad"
 label = "PAD-14"
 index = 13
+x = 27.1
+y = 22.1
+w = 5.8
+h = 1.8
 
 [control."pad-15"]
 kind = "pad"
 label = "PAD-15"
 index = 14
+x = 33.4
+y = 22.1
+w = 5.8
+h = 1.8
 
 [control."pad-16"]
 kind = "pad"
 label = "PAD-16"
 index = 15
+x = 39.7
+y = 22.1
+w = 5.8
+h = 1.8
 
 [control."knob-1"]
 kind = "knob"
 label = "KNOB-1"
 index = 0
+x = 9.6
+y = 8.8
+w = 2.2
+h = 2.2
 
 [control."knob-2"]
 kind = "knob"
 label = "KNOB-2"
 index = 1
+x = 12.6
+y = 8.8
+w = 2.2
+h = 2.2
 
 [control."knob-3"]
 kind = "knob"
 label = "KNOB-3"
 index = 2
+x = 15.6
+y = 8.8
+w = 2.2
+h = 2.2
 
 [control."knob-4"]
 kind = "knob"
 label = "KNOB-4"
 index = 3
+x = 18.6
+y = 8.8
+w = 2.2
+h = 2.2
 
 [control."knob-5"]
 kind = "knob"
 label = "KNOB-5"
 index = 4
+x = 21.6
+y = 8.8
+w = 2.2
+h = 2.2
 
 [control."knob-6"]
 kind = "knob"
 label = "KNOB-6"
 index = 5
+x = 24.6
+y = 8.8
+w = 2.2
+h = 2.2
 
 [control."knob-7"]
 kind = "knob"
 label = "KNOB-7"
 index = 6
+x = 27.6
+y = 8.8
+w = 2.2
+h = 2.2
 
 [control."knob-8"]
 kind = "knob"
 label = "KNOB-8"
 index = 7
+x = 30.6
+y = 8.8
+w = 2.2
+h = 2.2
 
 [control."encoder"]
 kind = "encoder"
@@ -978,13 +1074,25 @@ h = 5.2
 kind = "strip"
 label = "TOUCH-STRIP"
 index = 0
+x = 19.6
+y = 17.0
+w = 1.0
+h = 7.1
 
 [control."screen-left"]
 kind = "screen"
 label = "SCREEN-LEFT"
 index = 0
+x = 9.0
+y = 2.4
+w = 11.0
+h = 6.0
 
 [control."screen-right"]
 kind = "screen"
 label = "SCREEN-RIGHT"
 index = 1
+x = 21.0
+y = 2.4
+w = 11.0
+h = 6.0

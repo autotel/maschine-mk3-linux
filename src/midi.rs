@@ -11,7 +11,7 @@
 
 use alsa::seq::{
     Addr, ClientIter, EvCtrl, EvNote, Event, EventType, PortCap, PortInfo, PortIter, PortType,
-    PortSubscribe, Seq,
+    PortSubscribe, PortSubscribeIter, QuerySubsType, Seq,
 };
 use alsa::Direction;
 use anyhow::{Context, Result};
@@ -124,6 +124,34 @@ impl MidiIo {
         Ok(fds)
     }
 
+    /// Ask the sequencer to tell us when clients and subscriptions change.
+    ///
+    /// Without this the driver has no idea whether anything is listening, and
+    /// neither does the person using it: a host that lists the port but never
+    /// subscribes looks exactly like a driver that is not transmitting. With
+    /// it, every connection and disconnection can be reported as it happens,
+    /// and a host that starts later can be connected to automatically.
+    pub fn watch_announcements(&self) -> Result<()> {
+        let announce = Addr::system_announce();
+        self.connect_from(announce.client, announce.port)
+            .context("subscribing to the sequencer's announce port")
+    }
+
+    /// Our own client id, so announcements about us can be recognised.
+    pub fn client_id(&self) -> i32 {
+        self.client
+    }
+
+    /// The output port number.
+    pub fn out_port(&self) -> i32 {
+        self.out_port
+    }
+
+    /// Name a `client:port` for logging, falling back to the numbers.
+    pub fn describe(&self, addr: Addr) -> String {
+        describe_addr(&self.seq, addr)
+    }
+
     /// Every sequencer port that could receive what we send.
     ///
     /// Some hosts list a port without ever subscribing to it, which looks
@@ -174,6 +202,57 @@ impl MidiIo {
         done
     }
 
+    /// Names that must never be connected to automatically.
+    ///
+    /// `Midi Through` loops whatever it is sent straight back, so wiring our
+    /// output to it while our input is also connected builds a feedback loop.
+    /// The system client is not a MIDI destination at all.
+    ///
+    /// `exclude` carries the controller's own name, which keeps the surface
+    /// off the hardware's DIN output. Sending every button press out of the
+    /// physical MIDI socket is a legitimate thing to want and a surprising
+    /// thing to get without asking; `general.connect_to` turns it back on.
+    fn is_unsafe_to_autoconnect(name: &str, exclude: &[String]) -> bool {
+        let l = name.to_lowercase();
+        if l.contains("midi through") || l.starts_with("system:") || l.contains("announce") {
+            return true;
+        }
+        exclude
+            .iter()
+            .any(|e| !e.is_empty() && l.starts_with(&e.to_lowercase()))
+    }
+
+    /// Subscribe anything that looks like a host, and say what was connected.
+    ///
+    /// This is what makes the driver work without the person using it having
+    /// to know that listing a port and subscribing to it are separate steps in
+    /// ALSA. Ports that would form a loop are skipped.
+    pub fn connect_to_all_hosts(
+        &self,
+        already: &mut Vec<(i32, i32)>,
+        exclude: &[String],
+    ) -> Vec<String> {
+        let mut done = Vec::new();
+        for (client, port, name) in self.destinations() {
+            if client == self.client || already.contains(&(client, port)) {
+                continue;
+            }
+            if Self::is_unsafe_to_autoconnect(&name, exclude) {
+                continue;
+            }
+            match self.connect_to(client, port) {
+                Ok(()) => {
+                    already.push((client, port));
+                    done.push(name);
+                }
+                // Already subscribed is not a failure; note it so we stop
+                // trying on every rescan.
+                Err(_) => already.push((client, port)),
+            }
+        }
+        done
+    }
+
     /// Subscribe `dest` to our output port.
     pub fn connect_to(&self, dest_client: i32, dest_port: i32) -> Result<()> {
         let sub = PortSubscribe::empty()?;
@@ -207,6 +286,56 @@ impl MidiIo {
             .with_context(|| format!("subscribing to {src_client}:{src_port}"))?;
         Ok(())
     }
+}
+
+/// Name a `client:port` for logging, falling back to the numbers.
+fn describe_addr(seq: &Seq, addr: Addr) -> String {
+    for client in ClientIter::new(seq) {
+        if client.get_client() != addr.client {
+            continue;
+        }
+        let cname = client.get_name().unwrap_or("?").to_string();
+        for port in PortIter::new(seq, addr.client) {
+            if port.get_port() == addr.port {
+                return format!("{cname}:{}", port.get_name().unwrap_or("?"));
+            }
+        }
+        return cname;
+    }
+    format!("{}:{}", addr.client, addr.port)
+}
+
+/// Who is actually subscribed on either side of `addr` right now.
+///
+/// A sequencer port can be listed by a host without that host ever
+/// subscribing to it -- from the driver's side that looks identical to a
+/// working connection, since sending to an unsubscribed port fails silently.
+/// This is the other half of the picture: `listening` true asks who receives
+/// what `addr` sends (is anything actually listening on our output?);
+/// false asks who feeds `addr` (what is driving our LEDs?).
+///
+/// Opens its own transient sequencer connection rather than reusing the
+/// driver's, so a GUI polling this never touches the real-time thread's `Seq`
+/// handle from another thread.
+pub fn query_subscribers(addr: (i32, i32), listening: bool) -> Vec<String> {
+    let Ok(seq) = Seq::open(None, None, false) else {
+        return Vec::new();
+    };
+    let target = Addr {
+        client: addr.0,
+        port: addr.1,
+    };
+    let qtype = if listening {
+        QuerySubsType::READ
+    } else {
+        QuerySubsType::WRITE
+    };
+    PortSubscribeIter::new(&seq, target, qtype)
+        .map(|s| {
+            let other = if listening { s.get_dest() } else { s.get_sender() };
+            describe_addr(&seq, other)
+        })
+        .collect()
 }
 
 fn build(m: Msg) -> Event<'static> {
@@ -277,5 +406,29 @@ fn build(m: Msg) -> Event<'static> {
         Msg::Start => Event::new(EventType::Start, &()),
         Msg::Stop => Event::new(EventType::Stop, &()),
         Msg::Continue => Event::new(EventType::Continue, &()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loopbacks_and_the_devices_own_port_are_not_auto_connected() {
+        let exclude = vec!["Maschine MK3".to_string()];
+        // A hardware loopback would feed our own output straight back in.
+        assert!(MidiIo::is_unsafe_to_autoconnect(
+            "Midi Through:Midi Through Port-0",
+            &exclude
+        ));
+        // The controller's own DIN socket: legitimate, but not a default.
+        assert!(MidiIo::is_unsafe_to_autoconnect(
+            "Maschine MK3:Maschine MK3 MIDI 1",
+            &exclude
+        ));
+        assert!(MidiIo::is_unsafe_to_autoconnect("System:Announce", &exclude));
+        // An actual host is exactly what we want to connect.
+        assert!(!MidiIo::is_unsafe_to_autoconnect("REAPER:MIDI Input 1", &exclude));
+        assert!(!MidiIo::is_unsafe_to_autoconnect("Bitwig Studio:in", &exclude));
     }
 }

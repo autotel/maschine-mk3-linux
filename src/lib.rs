@@ -13,6 +13,7 @@
 pub mod config;
 pub mod config_default;
 pub mod device;
+pub mod diagnose;
 pub mod display;
 pub mod engine;
 pub mod hid;

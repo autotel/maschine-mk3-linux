@@ -94,6 +94,13 @@ struct App {
     save_as: Option<(String, String)>,
     /// Set while the import popup is open.
     import: Option<(String, String)>,
+    /// Names of the ports actually subscribed to our MIDI output. Empty means
+    /// nothing is listening, which looks identical to "not transmitting" from
+    /// inside a DAW that lists but never subscribes to the port.
+    midi_out_listeners: Vec<String>,
+    /// Names of the ports feeding our MIDI input (LED and display feedback).
+    midi_in_sources: Vec<String>,
+    last_midi_check: Instant,
 }
 
 impl App {
@@ -123,6 +130,9 @@ impl App {
             active_preset: None,
             save_as: None,
             import: None,
+            midi_out_listeners: Vec::new(),
+            midi_in_sources: Vec::new(),
+            last_midi_check: Instant::now() - Duration::from_secs(10),
         };
         app.connect();
         app
@@ -138,6 +148,7 @@ impl App {
                 self.status_bad = false;
                 self.load();
                 self.refresh_presets();
+                self.refresh_midi_status();
             }
             Err(_) if self.should_spawn => {
                 // Only try once: repeatedly spawning a driver that is failing
@@ -224,6 +235,25 @@ impl App {
         }
     }
 
+    /// Ask the driver who is actually subscribed to our MIDI ports.
+    ///
+    /// Polled on a timer rather than only after user actions, because a DAW
+    /// subscribing or unsubscribing happens on its own schedule, not ours.
+    fn refresh_midi_status(&mut self) {
+        self.last_midi_check = Instant::now();
+        let Some(client) = self.client.as_mut() else {
+            return;
+        };
+        if let Ok(Reply::MidiStatus {
+            out_listeners,
+            in_sources,
+        }) = client.request(&Request::GetMidiStatus, Duration::from_secs(2))
+        {
+            self.midi_out_listeners = out_listeners;
+            self.midi_in_sources = in_sources;
+        }
+    }
+
     /// Send a preset request and report the outcome in the status line.
     fn preset_request(&mut self, req: Request, done: &str) {
         let Some(client) = self.client.as_mut() else {
@@ -301,6 +331,9 @@ impl App {
         }
         if lost && self.last_connect_attempt.elapsed() > Duration::from_secs(2) {
             self.connect();
+        }
+        if self.client.is_some() && self.last_midi_check.elapsed() > Duration::from_secs(3) {
+            self.refresh_midi_status();
         }
         // Let a highlight fade rather than vanish, so a quick tap is still
         // visible on the next frame.
@@ -453,6 +486,9 @@ impl eframe::App for App {
                 ui.colored_label(colour, &self.status);
                 if self.dirty {
                     ui.colored_label(egui::Color32::from_rgb(255, 138, 0), "• unsaved");
+                }
+                if self.client.is_some() {
+                    self.midi_status_chip(ui);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Save & apply").clicked() {
@@ -752,8 +788,10 @@ impl App {
                     .is_some_and(|cf| cf.buttons.contains_key(name.as_str()));
 
             let base = match c.kind {
-                ControlKind::Screen => egui::Color32::from_rgb(18, 20, 26),
-                ControlKind::Pad => egui::Color32::from_rgb(38, 42, 52),
+                ControlKind::Screen => egui::Color32::from_rgb(14, 16, 21),
+                ControlKind::Pad => egui::Color32::from_rgb(41, 45, 55),
+                ControlKind::Knob | ControlKind::Encoder => egui::Color32::from_rgb(50, 54, 64),
+                ControlKind::Strip => egui::Color32::from_rgb(29, 32, 40),
                 _ if !bound => egui::Color32::from_rgb(28, 28, 32),
                 _ => egui::Color32::from_rgb(46, 50, 60),
             };
@@ -767,13 +805,20 @@ impl App {
             } else if c.led_colour.is_some() {
                 // Colour LEDs get a hint of one, so the mixed bank is visible.
                 egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 90, 60))
+            } else if c.kind == ControlKind::Screen {
+                egui::Stroke::new(1.0, egui::Color32::from_rgb(58, 62, 70))
             } else {
                 egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 74, 84))
             };
-            let rounding = if c.kind == ControlKind::Knob {
-                rect.width() / 2.0
-            } else {
-                3.0
+            // Pads and round controls get a rounding that scales with their
+            // own size, so a big pad and a small knob both read as the shape
+            // they are instead of sharing one flat corner radius meant for
+            // buttons.
+            let rounding = match c.kind {
+                ControlKind::Knob | ControlKind::Encoder => rect.width().min(rect.height()) / 2.0,
+                ControlKind::Pad => (rect.width().min(rect.height()) * 0.16).max(2.0),
+                ControlKind::Screen => 2.0,
+                _ => 3.0,
             };
             painter.rect(rect, rounding, fill, stroke);
 
@@ -784,20 +829,44 @@ impl App {
                 ControlKind::Pad => Some(self.pad_values[c.index.min(15)] as f32 / 127.0),
                 _ => None,
             };
-            if let Some(level) = level {
-                if level > 0.0 {
-                    let inner = egui::Rect::from_min_max(
-                        egui::pos2(
-                            rect.left() + 2.0,
-                            rect.bottom() - 4.0 - (rect.height() - 6.0) * level,
-                        ),
-                        egui::pos2(rect.right() - 2.0, rect.bottom() - 2.0),
-                    );
-                    painter.rect_filled(
-                        inner,
-                        2.0,
-                        egui::Color32::from_rgb(255, 138, 0).gamma_multiply(0.8),
-                    );
+            match c.kind {
+                // A round control gets a pointer sweeping from its rest
+                // position, not a bar climbing up a rectangle it does not
+                // have -- the old bar-in-a-circle read as a rendering bug.
+                ControlKind::Knob | ControlKind::Encoder => {
+                    if let Some(level) = level {
+                        let sweep = 270f32.to_radians();
+                        let angle = -sweep / 2.0 + sweep * level;
+                        let radius = rect.width().min(rect.height()) / 2.0 - 3.0;
+                        let dir = egui::vec2(angle.sin(), -angle.cos());
+                        let colour = if hot {
+                            egui::Color32::BLACK
+                        } else {
+                            egui::Color32::from_rgb(255, 138, 0)
+                        };
+                        painter.line_segment(
+                            [rect.center(), rect.center() + dir * radius],
+                            egui::Stroke::new(2.0, colour),
+                        );
+                    }
+                }
+                _ => {
+                    if let Some(level) = level {
+                        if level > 0.0 {
+                            let inner = egui::Rect::from_min_max(
+                                egui::pos2(
+                                    rect.left() + 2.0,
+                                    rect.bottom() - 4.0 - (rect.height() - 6.0) * level,
+                                ),
+                                egui::pos2(rect.right() - 2.0, rect.bottom() - 2.0),
+                            );
+                            painter.rect_filled(
+                                inner,
+                                2.0,
+                                egui::Color32::from_rgb(255, 138, 0).gamma_multiply(0.8),
+                            );
+                        }
+                    }
                 }
             }
 
@@ -1168,6 +1237,69 @@ impl App {
         self.int_field(ui, "display", "contrast", 0, 100, "Screen contrast");
         self.int_field(ui, "leds", "button_idle", 0, 127, "LED idle brightness");
         self.int_field(ui, "leds", "button_active", 0, 127, "LED active brightness");
+
+        ui.add_space(10.0);
+        ui.separator();
+        self.midi_status_section(ui);
+    }
+
+    /// The compact "N listening" chip in the top bar.
+    fn midi_status_chip(&self, ui: &mut egui::Ui) {
+        let n = self.midi_out_listeners.len();
+        let (colour, text) = if n == 0 {
+            (egui::Color32::from_rgb(255, 138, 0), "MIDI out: nothing listening".to_string())
+        } else {
+            (
+                egui::Color32::from_rgb(78, 201, 122),
+                format!("MIDI out: {n} listening"),
+            )
+        };
+        let resp = ui.colored_label(colour, text);
+        resp.on_hover_text(if n == 0 {
+            "A host can list this port without ever subscribing to it -- that \
+             looks exactly like a driver that sends nothing. Subscribe your \
+             DAW to the output port to fix this."
+                .to_string()
+        } else {
+            self.midi_out_listeners.join("\n")
+        });
+    }
+
+    /// The detailed MIDI connection state, in the General tab.
+    fn midi_status_section(&mut self, ui: &mut egui::Ui) {
+        ui.heading("MIDI");
+        ui.add_space(4.0);
+        if ui.button("Refresh").clicked() {
+            self.refresh_midi_status();
+        }
+        ui.add_space(4.0);
+
+        ui.label("Output — who receives what we send");
+        if self.midi_out_listeners.is_empty() {
+            ui.colored_label(
+                egui::Color32::from_rgb(255, 138, 0),
+                "nothing is subscribed",
+            );
+            ui.small(
+                "A DAW that lists this port without subscribing to it looks \
+                 identical, from here, to a driver sending nothing. Check the \
+                 MIDI input settings in your DAW.",
+            );
+        } else {
+            for name in &self.midi_out_listeners {
+                ui.label(format!("• {name}"));
+            }
+        }
+
+        ui.add_space(8.0);
+        ui.label("Input — who drives our LEDs and displays");
+        if self.midi_in_sources.is_empty() {
+            ui.small("nothing is feeding it back (fine if you don't use host feedback)");
+        } else {
+            for name in &self.midi_in_sources {
+                ui.label(format!("• {name}"));
+            }
+        }
     }
 
     fn int_field(&mut self, ui: &mut egui::Ui, table: &str, key: &str, lo: i64, hi: i64, label: &str) {

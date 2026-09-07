@@ -248,6 +248,12 @@ sudo usermod -aG audio "$USER"    # then log out and back in
 Without it the driver still runs, one line on stderr says so, and scheduler
 jitter is the only cost.
 
+This is the driver's own budget, and it's already at the hardware floor. If
+things still feel laggy, the rest of the chain -- MIDI routing, the audio
+buffer -- usually carries more delay than any of the above; see
+[`docs/latency.md`](docs/latency.md) for a practical walkthrough of the whole
+path.
+
 ## LEDs
 
 103 slots: 62 buttons, then the 25 touch strip LEDs, then the 16 pads. The pad
@@ -273,44 +279,70 @@ device's own feature reports.
 
 ## Troubleshooting
 
-**"no hidraw node for 17CC:1600"** — the device is not plugged in, or udev has
-not been reloaded. `lsusb | grep 17cc` to check, then replug.
+```sh
+mk3d --diagnose
+```
 
-**"opening ... Permission denied"** — the udev rule is not installed or the
-device was not replugged after installing it. `ls -l /dev/hidraw*` should show
-a `+` at the end of the permissions, meaning an ACL is granting you access.
+Checks the device, the udev permissions, the display interface, the sound card,
+the config, the MIDI port, who is subscribed to it, the PipeWire bridge and the
+real-time limits -- and for anything wrong, prints the command that fixes it.
+It changes nothing.
 
-**Screens stay dark, LEDs work** — something else has claimed USB interface 5.
-Only one process can. Check for a second `mk3d`, or a `mk3-learn test-display`
-still running.
+### The host sees the device but receives nothing
 
-**The host lists the port but receives nothing** — it is almost always that the
-host has not subscribed. Listing a port and connecting to it are separate steps
-in ALSA, and a host that skips the second looks exactly like a driver that is
-not transmitting.
+This is the common one, and it has three quite different causes that look
+identical from the outside. Rather than guess:
 
 ```sh
-mk3d --list-ports          # what could receive our output
-aseqdump -p 128:0          # prove the driver is sending
+mk3d --test-midi
 ```
 
-If `aseqdump` shows events, the driver is fine. Connect from this side by
-naming the host in the config:
+It sends a known note and CC on **every one of the 16 channels**, one at a
+time, and prints what it sent. What arrives in the host tells you which
+problem you have:
 
-```toml
-[general]
-connect_to = ["REAPER"]
+| what arrives | cause | fix |
+|---|---|---|
+| nothing | the host is not subscribed | see below |
+| some channels | the host is filtering by channel | set the track input to all channels, or load the `one-channel` preset |
+| everything | routing is fine | the track is not armed, or input monitoring is off |
+
+**Nothing arrives.** In ALSA, listing a port and subscribing to it are separate
+steps, and a host that does only the first is indistinguishable from a driver
+that is not sending. The driver now connects from its side: `auto_connect` is
+on by default, and it watches the sequencer so a host started later is picked
+up too. Every connection is logged:
+
+```
+[midi] REAPER:MIDI Input 1 is now listening (1 subscriber(s))
 ```
 
-or by hand, once: `aconnect 128:0 <client>:<port>`.
+If that line never appears, the host is on a different graph -- it is using
+JACK rather than ALSA. PipeWire bridges the port across, but nothing links it:
 
-If the host does not appear in `--list-ports` at all, it is not using the ALSA
-sequencer -- it is on JACK, and PipeWire's bridge exposes our port there
-instead. Connect it in the JACK graph (`qpwgraph`, `Carla`, or `jack_connect`).
+```sh
+pw-link "Midi-Bridge:Maschine MK3:(capture_0) Controller Out" "YOUR-HOST:MIDI Input 1"
+```
 
-**Pads trigger their neighbours** — raise `pads.threshold`. The device's own
-per-pad calibration is readable with `mk3-learn info` (reports `0xda` and
-`0xdb`) if you want to see how much headroom each pad has.
+or drag it across in `qpwgraph`. `mk3d --diagnose` prints the exact port name.
+
+**Some channels arrive.** Most presets spread controls across channels -- pads
+on 10, buttons on 16 -- so they stay apart in a host that can filter. A track
+listening only to channel 1 then hears the knobs and nothing else, which reads
+as "the pads are broken". Either set the input to all channels, or:
+
+```sh
+mk3d --preset one-channel
+```
+
+**The driver's own DIN socket** is deliberately not auto-connected: sending
+every button press out of the hardware's physical MIDI OUT is a reasonable
+thing to want and a surprising thing to get without asking. Add it with
+`connect_to = ["Maschine MK3 MIDI"]`.
+
+**Unplugging is fine.** The driver waits for the device at startup and
+reconnects when it comes back, so it can be left running as a service and the
+configuration app works with nothing plugged in.
 
 ## Layout of the source
 

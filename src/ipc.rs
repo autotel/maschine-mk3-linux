@@ -101,6 +101,12 @@ pub enum Request {
     },
     /// Ask for a reply, to check the driver is alive.
     Ping,
+    /// Ask who is actually subscribed to our MIDI ports.
+    ///
+    /// A host can list our output port without ever subscribing to it, which
+    /// looks identical to a working connection from the driver's side. This
+    /// is how the GUI tells the two apart.
+    GetMidiStatus,
 }
 
 /// A reply to a [`Request`].
@@ -141,6 +147,14 @@ pub enum Reply {
     Pong {
         /// Driver version.
         version: String,
+    },
+    /// Reply to [`Request::GetMidiStatus`].
+    MidiStatus {
+        /// Names of the ports currently subscribed to receive our output.
+        /// Empty means nothing is listening.
+        out_listeners: Vec<String>,
+        /// Names of the ports currently feeding our input.
+        in_sources: Vec<String>,
     },
 }
 
@@ -336,8 +350,9 @@ fn client_loop<G, S, P, R>(
                     message: format!("{e:#}"),
                 },
             },
-            // Preset handling needs the config path and the device profile,
-            // so it is delegated to the driver rather than reimplemented here.
+            // Everything else needs driver-side state (the config path, the
+            // device profile, the live MIDI ports) that this module does not
+            // hold, so it is delegated rather than reimplemented here.
             Ok(other) => presets(other),
         };
         let Ok(mut text) = serde_json::to_string(&Outbound::Reply(reply)) else {

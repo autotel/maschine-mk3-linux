@@ -16,6 +16,7 @@ means opening it in an editor. There is nothing else to learn.
 | `keys` | Two chromatic octaves from C2, polyphonic aftertouch on the soft curve, knobs on the usual synth CCs, strip on modulation. |
 | `mixer` | Eight channel strips. Knobs are level, group buttons are latching mutes, top rows of pads solo and arm. |
 | `minimal` | Pads and knobs only. Every button listed but silent — a base to build your own on without having to look up any names. |
+| `one-channel` | Everything on MIDI channel 1. For a host that only listens to one channel, or defaults a track's input to channel 1. |
 
 ## Using them
 

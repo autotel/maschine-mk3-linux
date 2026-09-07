@@ -22,6 +22,7 @@ realtime_priority = 80
 lock_memory = true
 gui_port = 0
 gui_bind = "127.0.0.1"
+auto_connect = true
 connect_to = []
 
 [display]

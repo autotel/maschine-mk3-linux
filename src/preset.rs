@@ -28,6 +28,7 @@ pub static BUILTIN: &[(&str, &str)] = &[
     ("drums", include_str!("../presets/drums.toml")),
     ("keys", include_str!("../presets/keys.toml")),
     ("mixer", include_str!("../presets/mixer.toml")),
+    ("one-channel", include_str!("../presets/one-channel.toml")),
     ("minimal", include_str!("../presets/minimal.toml")),
 ];
 

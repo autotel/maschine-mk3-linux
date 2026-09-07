@@ -100,6 +100,29 @@ impl HidDev {
     }
 }
 
+/// Whether a `hidraw` node for the device exists right now.
+pub fn present() -> bool {
+    find_hidraw().is_ok()
+}
+
+/// Whether an error means the device went away rather than misbehaved.
+///
+/// A read on a `hidraw` node whose device has been unplugged fails with
+/// `ENODEV`, and the descriptor stays open and useless until it is closed. It
+/// has to be told apart from an ordinary failure, because one calls for
+/// reconnecting and the other for reporting.
+pub fn is_disconnect(e: &anyhow::Error) -> bool {
+    for cause in e.chain() {
+        if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+            return matches!(
+                io.raw_os_error(),
+                Some(libc::ENODEV) | Some(libc::ENXIO) | Some(libc::EIO) | Some(libc::ESHUTDOWN)
+            );
+        }
+    }
+    false
+}
+
 /// Scan `/sys/class/hidraw` for a node whose parent USB device is the MK3.
 pub fn find_hidraw() -> Result<PathBuf> {
     let want = format!("{VID:04X}:{PID:04X}");
@@ -200,5 +223,30 @@ impl HidDev {
 impl std::os::unix::io::AsFd for HidDev {
     fn as_fd(&self) -> std::os::unix::io::BorrowedFd<'_> {
         std::os::unix::io::AsFd::as_fd(&self.file)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disconnect_is_told_apart_from_other_failures() {
+        let gone = anyhow::Error::from(std::io::Error::from_raw_os_error(libc::ENODEV))
+            .context("reading HID report");
+        assert!(
+            is_disconnect(&gone),
+            "an unplugged device must be recognised through the context chain"
+        );
+
+        let denied = anyhow::Error::from(std::io::Error::from_raw_os_error(libc::EACCES))
+            .context("opening hidraw");
+        assert!(
+            !is_disconnect(&denied),
+            "a permissions problem is not a disconnect; retrying forever would hide it"
+        );
+
+        let other = anyhow::anyhow!("something else entirely");
+        assert!(!is_disconnect(&other));
     }
 }
